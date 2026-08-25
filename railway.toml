@@ -3,8 +3,7 @@ builder = "NIXPACKS"
 buildCommand = "npm run build"
 
 [deploy]
-# Migrations run before the API starts; no destructive commands are executed.
-startCommand = "npm run start"
+startCommand = "npx prisma migrate deploy && npm run start"
 healthcheckPath = "/health"
 healthcheckTimeout = 60
 restartPolicyType = "ON_FAILURE"
