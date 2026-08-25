@@ -250,6 +250,114 @@ describe('POST /webhooks/meta-leads', () => {
     expect(response.statusCode).toBe(400);
     expect(response.body).not.toContain('at Object.');
   });
+
+  it('accepts POST with ?key=<CONNECTOR_WEBHOOK_TOKEN> and a JSON body when no Bearer is present', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}`,
+      headers: { 'content-type': 'application/json' },
+      payload: SAMPLE_PAYLOAD,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.received).toBe(true);
+    expect(body.eventId).toBeTypeOf('string');
+    expect(body.leadId).toBeTypeOf('string');
+
+    const event = await prisma.webhookEvent.findUniqueOrThrow({ where: { id: body.eventId } });
+    expect(event.provider).toBe('paterhaus_meta_connector');
+    expect(event.payload).toEqual(SAMPLE_PAYLOAD);
+
+    // The connector key must never be written to the stored payload or headers.
+    expect(JSON.stringify(event.payload)).not.toContain(TEST_CONNECTOR_TOKEN);
+    expect(JSON.stringify(event.headers)).not.toContain(TEST_CONNECTOR_TOKEN);
+    expect(event.payload).not.toHaveProperty('key');
+  });
+
+  it('rejects POST with an invalid ?key= and no Bearer with 401, storing nothing', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/meta-leads?key=definitely_not_the_real_token',
+      headers: { 'content-type': 'application/json' },
+      payload: SAMPLE_PAYLOAD,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.body).not.toContain(TEST_CONNECTOR_TOKEN);
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it('rejects POST with no Bearer and no key with 401, storing nothing', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/meta-leads',
+      headers: { 'content-type': 'application/json' },
+      payload: SAMPLE_PAYLOAD,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it('rejects POST with an invalid Bearer even when a valid ?key= is present', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}`,
+      headers: { 'content-type': 'application/json', authorization: 'Bearer wrong_bearer_secret' },
+      payload: SAMPLE_PAYLOAD,
+    });
+
+    // A present Bearer header takes precedence and is validated; the key
+    // fallback must not rescue an invalid Bearer.
+    expect(response.statusCode).toBe(401);
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it('still accepts POST with a valid Bearer header (no key required)', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/webhooks/meta-leads',
+      headers: webhookHeaders(),
+      payload: SAMPLE_PAYLOAD,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().received).toBe(true);
+  });
+
+  it('makes a POST-with-key event visible in the internal webhook monitor', async () => {
+    const app = await getTestApp();
+    const postResponse = await app.inject({
+      method: 'POST',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}`,
+      headers: { 'content-type': 'application/json' },
+      payload: { ...SAMPLE_PAYLOAD, lead_id: 'ext-post-key-001' },
+    });
+    expect(postResponse.statusCode).toBe(200);
+    const eventId = postResponse.json().eventId;
+
+    const monitor = await app.inject({
+      method: 'GET',
+      url: `/internal/webhook-monitor?token=${process.env.INTERNAL_DASHBOARD_SECRET}`,
+    });
+    expect(monitor.statusCode).toBe(200);
+    expect(monitor.body).toContain('paterhaus_meta_connector');
+    expect(monitor.body).not.toContain(TEST_CONNECTOR_TOKEN);
+
+    const detail = await app.inject({
+      method: 'GET',
+      url: `/internal/webhook-monitor/events/${eventId}?token=${process.env.INTERNAL_DASHBOARD_SECRET}`,
+    });
+    expect(detail.statusCode).toBe(200);
+    expect(detail.body).toContain('ext-post-key-001');
+    expect(detail.body).not.toContain(TEST_CONNECTOR_TOKEN);
+  });
 });
 
 describe('GET /webhooks/meta-leads (legacy connector adapter)', () => {

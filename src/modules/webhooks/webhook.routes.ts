@@ -5,6 +5,17 @@ import { isValidWebhookAuth, redactHeaders, safeCompare } from '../../utils/webh
 import { SAMPLE_WEBHOOK_PAYLOAD, metaLeadPayloadSchema, webhookResponseSchema } from './webhook.schemas.js';
 import { persistConnectorGetEvent, processMetaLeadWebhook } from './webhook.service.js';
 
+/**
+ * Validates a `?key=` query token against `CONNECTOR_WEBHOOK_TOKEN` using a
+ * timing-safe comparison. Both values must be present and non-empty; an absent
+ * or empty token on either side rejects without writing anything.
+ */
+function isValidConnectorKey(provided: unknown, expected: string): boolean {
+  if (typeof provided !== 'string' || provided.length === 0) return false;
+  if (!expected) return false;
+  return safeCompare(provided, expected);
+}
+
 export async function webhookRoutes(app: FastifyInstance): Promise<void> {
   app.post(
     '/webhooks/meta-leads',
@@ -13,9 +24,18 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
         tags: ['webhooks'],
         summary: 'Paterhaus Meta connector lead intake',
         description:
-          'Permanent intake endpoint for the Paterhaus custom Meta/Zapier connector. Requires ' +
-          '`Authorization: Bearer <WEBHOOK_SECRET>`. Unknown fields are preserved in the stored raw payload.',
-        security: [{ webhookBearer: [] }],
+          'Permanent intake endpoint for the Paterhaus custom Meta/Zapier connector. Authenticates via ' +
+          '`Authorization: Bearer <WEBHOOK_SECRET>`, or — when no Bearer header is present — via the ' +
+          '`?key=<CONNECTOR_WEBHOOK_TOKEN>` query parameter (legacy connector compatibility). Unknown ' +
+          'fields are preserved in the stored raw payload. The `key` query parameter is never stored.',
+        security: [{ webhookBearer: [] }, { webhookConnectorKey: [] }],
+        querystring: {
+          type: 'object',
+          additionalProperties: true,
+          properties: {
+            key: { type: 'string', description: 'Connector token (legacy fallback when no Bearer header)' },
+          },
+        },
         body: {
           type: 'object',
           additionalProperties: true,
@@ -29,9 +49,18 @@ export async function webhookRoutes(app: FastifyInstance): Promise<void> {
       },
     },
     async (request, reply) => {
-      const { WEBHOOK_SECRET } = getEnv();
+      const { WEBHOOK_SECRET, CONNECTOR_WEBHOOK_TOKEN } = getEnv();
 
-      if (!isValidWebhookAuth(request.headers.authorization, WEBHOOK_SECRET)) {
+      // Prefer the Bearer header. Only fall back to the `?key=` query token
+      // when no Authorization header is supplied, so existing Bearer callers
+      // are unaffected and the connector token is never accepted as a
+      // replacement for a present-but-invalid Bearer secret.
+      const hasBearer = typeof request.headers.authorization === 'string' && request.headers.authorization.length > 0;
+      const authorized = hasBearer
+        ? isValidWebhookAuth(request.headers.authorization, WEBHOOK_SECRET)
+        : isValidConnectorKey((request.query as Record<string, unknown>).key, CONNECTOR_WEBHOOK_TOKEN);
+
+      if (!authorized) {
         throw unauthorized('Invalid or missing webhook credentials');
       }
 

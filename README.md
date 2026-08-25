@@ -200,6 +200,20 @@ curl -X POST "https://your-api-domain/webhooks/meta-leads" \
 { "received": true, "eventId": "uuid", "leadId": "uuid", "status": "needs_review" }
 ```
 
+Authentication:
+
+- **Preferred:** `Authorization: Bearer <WEBHOOK_SECRET>`.
+- **Legacy fallback:** when no `Authorization` header is present, the endpoint also accepts
+  `?key=<CONNECTOR_WEBHOOK_TOKEN>` in the query string. This is for connectors that can send a JSON body
+  but cannot set custom headers. A present Bearer header always takes precedence and is validated on its
+  own — the `key` fallback never rescues an invalid Bearer.
+- The `key` query parameter is never written to `WebhookEvent.payload` or headers.
+- Missing/invalid credentials → `401`; nothing is stored.
+
+> **WARNING — legacy connector compatibility only.** Query-string tokens may appear in third-party/proxy
+> logs and browser history. Prefer the Bearer header whenever the connector supports it, and use a
+> `CONNECTOR_WEBHOOK_TOKEN` that differs from `WEBHOOK_SECRET`.
+
 Behaviour:
 
 - every authenticated body is stored verbatim in `WebhookEvent.payload` (unknown/future fields preserved);
