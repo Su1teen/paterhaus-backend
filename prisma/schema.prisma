@@ -1,0 +1,250 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  ADMIN
+  MARKETING
+  OWNER_ACQUISITION
+  OPERATIONS
+}
+
+enum CampaignPlatform {
+  FACEBOOK
+  INSTAGRAM
+  GOOGLE
+  WHATSAPP
+  REFERRAL
+  OTHER
+}
+
+enum CampaignDirection {
+  PROPERTY_MANAGEMENT
+  SNAGGING
+  STAGING
+}
+
+enum CampaignStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  COMPLETED
+}
+
+enum LeadDirection {
+  UNCLASSIFIED
+  PROPERTY_MANAGEMENT
+  SNAGGING
+  STAGING
+}
+
+enum LeadSource {
+  META_CONNECTOR
+  META_LEAD_ADS
+  WHATSAPP
+  WEBSITE
+  REFERRAL
+  MANUAL
+  OTHER
+}
+
+enum MappingStatus {
+  MAPPED
+  NEEDS_REVIEW
+  FAILED
+}
+
+enum LeadEventType {
+  LEAD_CREATED
+  WEBHOOK_RECEIVED
+  STAGE_CHANGED
+  ASSIGNED
+  NOTE_ADDED
+  MESSAGE_RECEIVED
+  MESSAGE_SENT
+  MAPPING_REVIEW_REQUIRED
+}
+
+enum WebhookEventStatus {
+  RECEIVED
+  PROCESSED
+  DUPLICATE
+  NEEDS_REVIEW
+  FAILED
+}
+
+model User {
+  id        String   @id @default(uuid()) @db.Uuid
+  email     String   @unique
+  name      String
+  role      UserRole
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  leads Lead[]
+}
+
+model Campaign {
+  id        String            @id @default(uuid()) @db.Uuid
+  name      String
+  platform  CampaignPlatform
+  direction CampaignDirection
+  status    CampaignStatus
+  spendUsd  Decimal           @default(0) @db.Decimal(12, 2)
+  startsAt  DateTime?
+  endsAt    DateTime?
+  notes     String?
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+
+  leads Lead[]
+
+  @@index([direction])
+  @@index([status])
+  @@index([platform])
+}
+
+model Lead {
+  id String @id @default(uuid()) @db.Uuid
+
+  externalLeadId  String?
+  name            String?
+  phone           String?
+  normalizedPhone String?
+  email           String?
+  normalizedEmail String?
+
+  propertyType String?
+  propertyArea String?
+  bedrooms     Int?
+  serviceRaw   String?
+
+  direction LeadDirection @default(UNCLASSIFIED)
+  stage     String        @default("new")
+  source    LeadSource
+
+  mappingStatus MappingStatus @default(MAPPED)
+
+  campaignId String? @db.Uuid
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  assignedUserId String? @db.Uuid
+  assignedUser   User?   @relation(fields: [assignedUserId], references: [id], onDelete: SetNull)
+
+  firstResponseAt    DateTime?
+  firstResponseDueAt DateTime?
+  followUpDueAt      DateTime?
+
+  lostReason String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  attribution   LeadAttribution?
+  events        LeadEvent[]
+  webhookEvents WebhookEvent[]
+
+  @@unique([source, externalLeadId], name: "source_externalLeadId")
+  @@index([externalLeadId])
+  @@index([normalizedPhone])
+  @@index([normalizedEmail])
+  @@index([createdAt])
+  @@index([direction])
+  @@index([stage])
+  @@index([source])
+  @@index([campaignId])
+  @@index([mappingStatus])
+}
+
+model LeadAttribution {
+  id     String @id @default(uuid()) @db.Uuid
+  leadId String @unique @db.Uuid
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  platform           String?
+  campaignExternalId String?
+  campaignName       String?
+  adSetExternalId    String?
+  adSetName          String?
+  adExternalId       String?
+  adName             String?
+  formExternalId     String?
+  formName           String?
+
+  utmSource   String?
+  utmMedium   String?
+  utmCampaign String?
+  utmContent  String?
+
+  firstTouchAt DateTime?
+  capturedAt   DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model LeadEvent {
+  id     String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  lead   Lead   @relation(fields: [leadId], references: [id], onDelete: Cascade)
+
+  type        LeadEventType
+  description String
+  metadata    Json?
+  occurredAt  DateTime      @default(now())
+  createdAt   DateTime      @default(now())
+
+  @@index([leadId])
+  @@index([type])
+  @@index([occurredAt])
+}
+
+model WebhookEvent {
+  id             String  @id @default(uuid()) @db.Uuid
+  provider       String
+  eventId        String?
+  externalLeadId String?
+
+  payload Json
+  headers Json?
+
+  status       WebhookEventStatus @default(RECEIVED)
+  errorMessage String?
+
+  leadId String? @db.Uuid
+  lead   Lead?   @relation(fields: [leadId], references: [id], onDelete: SetNull)
+
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+  createdAt   DateTime  @default(now())
+
+  @@index([provider])
+  @@index([status])
+  @@index([receivedAt])
+  @@index([externalLeadId])
+}
+
+model IntegrationMapping {
+  id       String @id @default(uuid()) @db.Uuid
+  provider String
+
+  sourceField String
+  sourceValue String
+
+  targetField String
+  targetValue String
+
+  active Boolean @default(true)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([provider, sourceField, sourceValue, targetField])
+  @@index([provider])
+  @@index([active])
+}
