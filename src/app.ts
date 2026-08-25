@@ -10,7 +10,7 @@ import { registerCors } from './plugins/cors.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerSwagger } from './plugins/swagger.js';
 
-const REDACTED_QUERY_PARAMS = new Set(['token', 'secret', 'access_token']);
+const REDACTED_QUERY_PARAMS = new Set(['token', 'secret', 'access_token', 'key']);
 
 /** Removes credential-bearing query parameters so request URLs are safe to log. */
 function sanitizeUrl(url: string | undefined): string {
@@ -18,6 +18,11 @@ function sanitizeUrl(url: string | undefined): string {
 
   const [path, query] = url.split('?');
   if (!query) return url;
+
+  // Webhook routes may carry tokens and PII (name, phone, email) in the query
+  // string (legacy GET connector adapter). Log the pathname only — never the
+  // query string — for these routes.
+  if (path?.startsWith('/webhooks/')) return path ?? '';
 
   const params = new URLSearchParams(query);
   for (const key of params.keys()) {

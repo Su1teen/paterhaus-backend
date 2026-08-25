@@ -18,6 +18,7 @@ export default defineConfig({
       DATABASE_URL: TEST_DATABASE_URL,
       WEBHOOK_SECRET: 'test_webhook_secret_value_0123456789',
       INTERNAL_DASHBOARD_SECRET: 'test_dashboard_secret_value_0123456789',
+      CONNECTOR_WEBHOOK_TOKEN: 'test_connector_token_value_0123456789',
       CORS_ORIGIN: 'http://localhost:5173',
       LOG_LEVEL: 'silent',
     },

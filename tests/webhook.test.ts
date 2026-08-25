@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
 import {
+  TEST_CONNECTOR_TOKEN,
   closeTestApp,
   getTestApp,
   resetDatabase,
@@ -248,5 +249,141 @@ describe('POST /webhooks/meta-leads', () => {
 
     expect(response.statusCode).toBe(400);
     expect(response.body).not.toContain('at Object.');
+  });
+});
+
+describe('GET /webhooks/meta-leads (legacy connector adapter)', () => {
+  beforeAll(async () => {
+    await getTestApp();
+  });
+
+  afterAll(async () => {
+    await closeTestApp();
+  });
+
+  beforeEach(async () => {
+    await resetDatabase();
+    await seedServiceMappings();
+  });
+
+  it('rejects a request without a key parameter with 401 and stores nothing', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: '/webhooks/meta-leads?lead_id=1&name=Ivan',
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ ok: false, error: 'Unauthorized' });
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it('rejects a request with an invalid key with 401 and stores nothing', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=definitely_not_the_real_token&lead_id=1`,
+    });
+
+    expect(response.statusCode).toBe(401);
+    expect(response.json()).toEqual({ ok: false, error: 'Unauthorized' });
+    expect(await prisma.webhookEvent.count()).toBe(0);
+  });
+
+  it('accepts a valid key, stores the payload without the key, and returns 200', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&lead_id=ext-1&name=Ivan%20Ivanov&phone=%2B77001234567&email=ivan%40example.com&test_ref=ref-001`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ ok: true });
+
+    const event = await prisma.webhookEvent.findFirstOrThrow();
+    expect(event.provider).toBe('paterhaus_meta_connector_get');
+    expect(event.status).toBe('PROCESSED');
+    expect(event.leadId).toBeNull();
+
+    const payload = event.payload as Record<string, unknown>;
+    expect(payload).not.toHaveProperty('key');
+    expect(payload.lead_id).toBe('ext-1');
+    expect(payload.name).toBe('Ivan Ivanov');
+    expect(payload.phone).toBe('+77001234567');
+    expect(payload.email).toBe('ivan@example.com');
+    expect(payload.test_ref).toBe('ref-001');
+
+    const headers = event.headers as Record<string, unknown>;
+    expect(headers['x-request-method']).toBe('GET');
+    expect(JSON.stringify(headers)).not.toContain(TEST_CONNECTOR_TOKEN);
+  });
+
+  it('preserves repeated query parameters as arrays', async () => {
+    const app = await getTestApp();
+    const response = await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&tag=a&tag=b&tag=c`,
+    });
+
+    expect(response.statusCode).toBe(200);
+    const event = await prisma.webhookEvent.findFirstOrThrow();
+    expect((event.payload as Record<string, unknown>).tag).toEqual(['a', 'b', 'c']);
+  });
+
+  it('does not create a lead or any downstream side effects', async () => {
+    const app = await getTestApp();
+    await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&lead_id=ext-1&name=Ivan&service=Snagging`,
+    });
+
+    expect(await prisma.lead.count()).toBe(0);
+    expect(await prisma.leadEvent.count()).toBe(0);
+    expect(await prisma.leadAttribution.count()).toBe(0);
+    expect(await prisma.webhookEvent.count()).toBe(1);
+  });
+
+  it('appears in the internal webhook monitor list', async () => {
+    const app = await getTestApp();
+    await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&lead_id=ext-1&name=Ivan`,
+    });
+
+    const monitor = await app.inject({
+      method: 'GET',
+      url: `/internal/webhook-monitor?token=${process.env.INTERNAL_DASHBOARD_SECRET}`,
+    });
+
+    expect(monitor.statusCode).toBe(200);
+    expect(monitor.body).toContain('paterhaus_meta_connector_get');
+    expect(monitor.body).not.toContain(TEST_CONNECTOR_TOKEN);
+  });
+
+  it('does not interfere with the existing POST Bearer endpoint', async () => {
+    const app = await getTestApp();
+
+    const postResponse = await app.inject({
+      method: 'POST',
+      url: '/webhooks/meta-leads',
+      headers: webhookHeaders(),
+      payload: SAMPLE_PAYLOAD,
+    });
+    expect(postResponse.statusCode).toBe(200);
+    expect(postResponse.json().received).toBe(true);
+
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&lead_id=ext-get-1`,
+    });
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ ok: true });
+
+    const events = await prisma.webhookEvent.findMany({ orderBy: { receivedAt: 'asc' } });
+    expect(events).toHaveLength(2);
+    expect(events.map((event) => event.provider).sort()).toEqual([
+      'paterhaus_meta_connector',
+      'paterhaus_meta_connector_get',
+    ]);
   });
 });

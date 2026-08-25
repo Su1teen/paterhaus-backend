@@ -55,6 +55,10 @@ DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
 WEBHOOK_SECRET=replace_with_a_long_random_secret
 INTERNAL_DASHBOARD_SECRET=replace_with_another_long_random_secret
 
+# Legacy GET connector adapter (optional). When unset/empty, GET /webhooks/meta-leads
+# rejects every request with 401. Only enable for connectors that cannot send POST/Bearer.
+CONNECTOR_WEBHOOK_TOKEN=replace_with_a_long_random_connector_token
+
 CORS_ORIGIN=http://localhost:5173
 ```
 
@@ -66,6 +70,7 @@ LOG_LEVEL=info
 
 All variables are validated with Zod at startup. The process fails fast (without printing values) when
 `DATABASE_URL`, `WEBHOOK_SECRET`, `INTERNAL_DASHBOARD_SECRET` or `CORS_ORIGIN` is missing.
+`CONNECTOR_WEBHOOK_TOKEN` is optional — when empty, the legacy GET adapter is disabled and returns 401.
 
 Generate strong secrets with:
 
@@ -215,6 +220,40 @@ Other endpoints: `GET/POST /leads`, `GET/PATCH/DELETE /leads/:id`, the same shap
 `/integrations/health` reports conservatively — `n8n` and `waha` are always `not_configured` because no
 real connection check exists, and connector state is inferred only from received webhook events.
 
+## 12a. Calling GET /webhooks/meta-leads (legacy connector adapter)
+
+A compatibility endpoint for third-party lead connectors that can **only** issue HTTP GET and cannot send
+custom headers or POST bodies. The connector token is supplied through the query string:
+
+```bash
+curl "https://your-api-domain/webhooks/meta-leads?key=YOUR_CONNECTOR_WEBHOOK_TOKEN&lead_id=123&name=Ivan%20Ivanov&phone=%2B77001234567&email=ivan%40example.com&test_ref=abc"
+```
+
+```json
+{ "ok": true }
+```
+
+Behaviour:
+
+- the `key` query parameter is validated against `CONNECTOR_WEBHOOK_TOKEN` using a timing-safe comparison;
+- a missing or invalid `key` returns `401` with `{ "ok": false, "error": "Unauthorized" }` and stores nothing;
+- every other query parameter is stored verbatim as a `WebhookEvent` (provider `paterhaus_meta_connector_get`)
+  for inspection in the internal webhook monitor — **no lead is created and no downstream side effects run**;
+- repeated query parameters are preserved as arrays;
+- the `key` is never written to the database payload or to application logs;
+- request logs for `/webhooks/` routes record only method, pathname, response status, event ID and source —
+  the full query string, `key`, phone, email and raw payload are never logged.
+
+> **WARNING — legacy/connector compatibility only.** Query-string tokens and PII (name, phone, email) may
+> appear in third-party connector logs, proxy logs and browser history. Prefer
+> `POST /webhooks/meta-leads` with `Authorization: Bearer <WEBHOOK_SECRET>` whenever the connector supports
+> it. Use a dedicated `CONNECTOR_WEBHOOK_TOKEN` that differs from `WEBHOOK_SECRET`, and rotate it if a
+> connector log is ever exposed.
+
+A successful GET delivery appears in the internal webhook monitor
+(`GET /internal/webhook-monitor?token=<INTERNAL_DASHBOARD_SECRET>`) alongside POST events, tagged with the
+`paterhaus_meta_connector_get` provider.
+
 ## 13. Opening /docs
 
 Swagger UI: `https://your-api-domain/docs` (OpenAPI JSON at `/docs/json`). The internal monitor routes are
@@ -240,6 +279,8 @@ Do not share this URL publicly — the token is in the query string.
 - Secrets come only from Railway Variables; `.env` is git-ignored and `.env.example` holds placeholders.
 - Webhook auth uses a timing-safe comparison; the expected secret is never returned or logged.
 - Request logging redacts `authorization`, `cookie` and request bodies; full payloads are never logged.
+  For `/webhooks/` routes the query string is dropped entirely from logs (the legacy GET adapter may carry
+  the connector token and PII in the query string), and `key` is redacted everywhere else as defence in depth.
 - Stored webhook headers are redacted (`authorization`, `cookie`, `x-api-key`, signature headers dropped)
   and are never returned by the API or rendered in the monitor.
 - All monitor output is HTML-escaped; no environment values, database URL or stack traces are rendered.

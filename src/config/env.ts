@@ -6,6 +6,8 @@ const envSchema = z.object({
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   WEBHOOK_SECRET: z.string().min(1, 'WEBHOOK_SECRET is required'),
   INTERNAL_DASHBOARD_SECRET: z.string().min(1, 'INTERNAL_DASHBOARD_SECRET is required'),
+  // Optional: when unset/empty, the legacy GET connector adapter rejects every request with 401.
+  CONNECTOR_WEBHOOK_TOKEN: z.string().default(''),
   CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
