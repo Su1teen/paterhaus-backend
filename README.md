@@ -237,7 +237,7 @@ Behaviour:
 
 - the `key` query parameter is validated against `CONNECTOR_WEBHOOK_TOKEN` using a timing-safe comparison;
 - a missing or invalid `key` returns `401` with `{ "ok": false, "error": "Unauthorized" }` and stores nothing;
-- every other query parameter is stored verbatim as a `WebhookEvent` (provider `paterhaus_meta_connector_get`)
+- every other query parameter is stored verbatim as a `WebhookEvent` (provider `connector-get`)
   for inspection in the internal webhook monitor — **no lead is created and no downstream side effects run**;
 - repeated query parameters are preserved as arrays;
 - the `key` is never written to the database payload or to application logs;
@@ -252,7 +252,9 @@ Behaviour:
 
 A successful GET delivery appears in the internal webhook monitor
 (`GET /internal/webhook-monitor?token=<INTERNAL_DASHBOARD_SECRET>`) alongside POST events, tagged with the
-`paterhaus_meta_connector_get` provider.
+`connector-get` provider. The monitor lists events newest-first (with a deterministic tiebreaker on
+`createdAt`), so a GET delivery landing in the same millisecond as a POST webhook still renders in a
+stable order.
 
 ## 13. Opening /docs
 

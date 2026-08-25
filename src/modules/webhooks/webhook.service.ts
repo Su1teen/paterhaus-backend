@@ -10,7 +10,7 @@ export const META_CONNECTOR_PROVIDER = 'paterhaus_meta_connector';
  * standard POST provider so GET-only deliveries are identifiable in the
  * webhook monitor without affecting the POST connector-state card.
  */
-export const CONNECTOR_GET_PROVIDER = 'paterhaus_meta_connector_get';
+export const CONNECTOR_GET_PROVIDER = 'connector-get';
 
 export interface ExtractedLeadFields {
   name?: string;

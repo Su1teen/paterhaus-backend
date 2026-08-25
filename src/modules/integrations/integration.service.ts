@@ -82,7 +82,11 @@ export async function listWebhookEvents(
   const [events, total] = await Promise.all([
     prisma.webhookEvent.findMany({
       where,
-      orderBy: { receivedAt: 'desc' },
+      // `receivedAt` alone is unstable when several events share the same
+      // millisecond (e.g. a GET connector delivery and a POST webhook landing
+      // together). Sort by `createdAt` as a deterministic tiebreaker so the
+      // monitor is always newest-first regardless of provider.
+      orderBy: [{ receivedAt: 'desc' }, { createdAt: 'desc' }],
       skip: pagination.skip,
       take: pagination.take,
       include: {

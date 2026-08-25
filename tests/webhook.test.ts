@@ -301,7 +301,7 @@ describe('GET /webhooks/meta-leads (legacy connector adapter)', () => {
     expect(response.json()).toEqual({ ok: true });
 
     const event = await prisma.webhookEvent.findFirstOrThrow();
-    expect(event.provider).toBe('paterhaus_meta_connector_get');
+    expect(event.provider).toBe('connector-get');
     expect(event.status).toBe('PROCESSED');
     expect(event.leadId).toBeNull();
 
@@ -356,8 +356,50 @@ describe('GET /webhooks/meta-leads (legacy connector adapter)', () => {
     });
 
     expect(monitor.statusCode).toBe(200);
-    expect(monitor.body).toContain('paterhaus_meta_connector_get');
+    expect(monitor.body).toContain('connector-get');
     expect(monitor.body).not.toContain(TEST_CONNECTOR_TOKEN);
+  });
+
+  it('verifies a test_ref=monitor-check-001 GET event appears in the monitor query', async () => {
+    const app = await getTestApp();
+
+    // Send a legacy GET delivery marked with a unique reference so we can
+    // prove this exact event is readable through the internal monitor.
+    const getResponse = await app.inject({
+      method: 'GET',
+      url: `/webhooks/meta-leads?key=${TEST_CONNECTOR_TOKEN}&test_ref=monitor-check-001&lead_id=ext-monitor&name=Monitor%20Check`,
+    });
+    expect(getResponse.statusCode).toBe(200);
+    expect(getResponse.json()).toEqual({ ok: true });
+
+    // The stored event must carry the connector-get provider and the marker,
+    // with the key stripped from the payload.
+    const event = await prisma.webhookEvent.findFirstOrThrow();
+    expect(event.provider).toBe('connector-get');
+    expect((event.payload as Record<string, unknown>).test_ref).toBe('monitor-check-001');
+    expect(event.payload).not.toHaveProperty('key');
+
+    // The monitor list query (the same `listWebhookEvents` the dashboard runs)
+    // must surface the event — the provider column renders `connector-get`.
+    const monitorList = await app.inject({
+      method: 'GET',
+      url: `/internal/webhook-monitor?token=${process.env.INTERNAL_DASHBOARD_SECRET}`,
+    });
+    expect(monitorList.statusCode).toBe(200);
+    expect(monitorList.body).toContain('connector-get');
+    expect(monitorList.body).not.toContain(TEST_CONNECTOR_TOKEN);
+    expect(monitorList.body).not.toContain('monitor-check-001');
+
+    // The monitor detail query must render this exact event's raw payload,
+    // proving the `test_ref` marker survives end-to-end through the monitor.
+    const monitorDetail = await app.inject({
+      method: 'GET',
+      url: `/internal/webhook-monitor/events/${event.id}?token=${process.env.INTERNAL_DASHBOARD_SECRET}`,
+    });
+    expect(monitorDetail.statusCode).toBe(200);
+    expect(monitorDetail.body).toContain('connector-get');
+    expect(monitorDetail.body).toContain('monitor-check-001');
+    expect(monitorDetail.body).not.toContain(TEST_CONNECTOR_TOKEN);
   });
 
   it('does not interfere with the existing POST Bearer endpoint', async () => {
@@ -382,8 +424,8 @@ describe('GET /webhooks/meta-leads (legacy connector adapter)', () => {
     const events = await prisma.webhookEvent.findMany({ orderBy: { receivedAt: 'asc' } });
     expect(events).toHaveLength(2);
     expect(events.map((event) => event.provider).sort()).toEqual([
+      'connector-get',
       'paterhaus_meta_connector',
-      'paterhaus_meta_connector_get',
     ]);
   });
 });
