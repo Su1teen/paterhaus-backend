@@ -5,6 +5,13 @@ import { normalizePhone } from '../../utils/normalize-phone.js';
 
 export const META_CONNECTOR_PROVIDER = 'paterhaus_meta_connector';
 
+/**
+ * Provider tag for the legacy GET ingestion adapter. Kept distinct from the
+ * standard POST provider so GET-only deliveries are identifiable in the
+ * webhook monitor without affecting the POST connector-state card.
+ */
+export const CONNECTOR_GET_PROVIDER = 'connector-get';
+
 export interface ExtractedLeadFields {
   name?: string;
   phone?: string;
@@ -41,6 +48,10 @@ export interface WebhookIntakeResult {
   eventId: string;
   leadId: string | null;
   status: 'processed' | 'needs_review' | 'duplicate';
+}
+
+export interface ConnectorGetResult {
+  eventId: string;
 }
 
 function pickString(payload: Record<string, unknown>, keys: string[]): string | undefined {
@@ -294,4 +305,30 @@ export async function processMetaLeadWebhook(
 
     throw error;
   }
+}
+
+/**
+ * Persists a legacy GET connector delivery as a `WebhookEvent` for inspection
+ * only. Performs NO downstream side effects — no lead is created, no mappings
+ * are resolved. The `key` query parameter must already be stripped by the
+ * caller so the authentication token is never written to the database.
+ */
+export async function persistConnectorGetEvent(
+  payload: Record<string, unknown>,
+  safeHeaders: Record<string, string>,
+): Promise<ConnectorGetResult> {
+  const webhookEvent = await prisma.webhookEvent.create({
+    data: {
+      provider: CONNECTOR_GET_PROVIDER,
+      eventId: null,
+      externalLeadId: null,
+      payload: payload as Prisma.InputJsonValue,
+      headers: safeHeaders as Prisma.InputJsonValue,
+      status: WebhookEventStatus.PROCESSED,
+      receivedAt: new Date(),
+      processedAt: new Date(),
+    },
+  });
+
+  return { eventId: webhookEvent.id };
 }
