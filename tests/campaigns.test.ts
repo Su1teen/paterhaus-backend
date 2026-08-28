@@ -9,7 +9,7 @@ const VALID_CAMPAIGN = {
   status: 'ACTIVE',
   spendUsd: 1500.5,
 };
-
+  //tst
 describe('Campaigns API', () => {
   beforeAll(async () => {
     await getTestApp();
