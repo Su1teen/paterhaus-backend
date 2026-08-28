@@ -6,6 +6,9 @@ export const TEST_CONNECTOR_TOKEN = 'test_connector_token_value_0123456789';
 export const TEST_CORS_ORIGIN = 'http://localhost:5173';
 
 process.env.NODE_ENV = 'test';
+process.env.CHAT_HISTORY_DATABASE_URL = 'postgresql://postgres:postgres@localhost:5432/paterhaus_chat_history_test';
+process.env.CRM_JWT_SECRET = 'test_crm_jwt_secret_value_0123456789';
+process.env.CRM_ALLOWED_EMAILS = 'info@paterhaus.com,r_tszi@paterhaus.com';
 process.env.WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 process.env.INTERNAL_DASHBOARD_SECRET = TEST_DASHBOARD_SECRET;
 process.env.CONNECTOR_WEBHOOK_TOKEN = TEST_CONNECTOR_TOKEN;

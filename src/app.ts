@@ -1,6 +1,11 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { getEnv } from './config/env.js';
+import { closeChatHistoryPool } from './lib/chat-history-db.js';
 import { campaignRoutes } from './modules/campaigns/campaign.routes.js';
+import {
+  conversationRoutes,
+  type ConversationRouteOptions,
+} from './modules/conversations/conversation.routes.js';
 import { healthRoutes } from './modules/health/health.routes.js';
 import { integrationRoutes } from './modules/integrations/integration.routes.js';
 import { internalMonitorRoutes } from './modules/internal/monitor.routes.js';
@@ -33,7 +38,11 @@ function sanitizeUrl(url: string | undefined): string {
   return serialized.length > 0 ? `${path}?${serialized}` : (path ?? '');
 }
 
-export async function buildApp(): Promise<FastifyInstance> {
+export interface BuildAppOptions {
+  conversations?: ConversationRouteOptions;
+}
+
+export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
   const env = getEnv();
 
   const app = Fastify({
@@ -64,8 +73,11 @@ export async function buildApp(): Promise<FastifyInstance> {
   await app.register(webhookRoutes);
   await app.register(leadRoutes);
   await app.register(campaignRoutes);
+  await app.register(conversationRoutes, options.conversations ?? {});
   await app.register(integrationRoutes);
   await app.register(internalMonitorRoutes);
+
+  app.addHook('onClose', closeChatHistoryPool);
 
   return app;
 }

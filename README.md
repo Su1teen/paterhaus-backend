@@ -17,8 +17,8 @@ Paterhaus React CRM frontend ─┐
 Paterhaus Meta connector ─────┘        (this repository)
 ```
 
-n8n / WAHA / Telegram / Meta Marketing API integrations are **not** implemented yet; extension points
-exist but no external calls are made.
+The live-conversations API can read n8n/WAHA-produced rows from a separate PostgreSQL database. It does
+not call n8n or WAHA. Telegram and Meta Marketing API integrations are not implemented.
 
 ---
 
@@ -52,6 +52,11 @@ PORT=3000
 
 DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/DATABASE
 
+# Separate database that already contains chats_pater and hostory_pater.
+CHAT_HISTORY_DATABASE_URL=postgresql://USER:PASSWORD@HOST:5432/CHAT_HISTORY_DATABASE
+CRM_JWT_SECRET=replace_with_at_least_32_random_characters
+CRM_ALLOWED_EMAILS=info@paterhaus.com,r_tszi@paterhaus.com
+
 WEBHOOK_SECRET=replace_with_a_long_random_secret
 INTERNAL_DASHBOARD_SECRET=replace_with_another_long_random_secret
 
@@ -69,7 +74,8 @@ LOG_LEVEL=info
 ```
 
 All variables are validated with Zod at startup. The process fails fast (without printing values) when
-`DATABASE_URL`, `WEBHOOK_SECRET`, `INTERNAL_DASHBOARD_SECRET` or `CORS_ORIGIN` is missing.
+`DATABASE_URL`, `CHAT_HISTORY_DATABASE_URL`, `CRM_JWT_SECRET`, `CRM_ALLOWED_EMAILS`, `WEBHOOK_SECRET`,
+`INTERNAL_DASHBOARD_SECRET` or `CORS_ORIGIN` is missing.
 `CONNECTOR_WEBHOOK_TOKEN` is optional — when empty, the legacy GET adapter is disabled and returns 401.
 
 Generate strong secrets with:
@@ -166,6 +172,30 @@ CORS_ORIGIN=https://prestige-crm-production.up.railway.app,http://localhost:5173
 ```
 
 Allowed methods: `GET, POST, PATCH, DELETE, OPTIONS`. Allowed headers: `Content-Type, Authorization`.
+The production Prestige CRM origin is also explicitly allowed by the application; wildcard production
+origins are never enabled.
+
+## 10a. Live Paterhaus conversations
+
+The protected API routes are:
+
+```text
+POST  /api/paterhaus/conversations/access-token
+GET   /api/paterhaus/conversations
+GET   /api/paterhaus/conversations/:conversationId/messages
+PATCH /api/paterhaus/conversations/:conversationId/ai
+```
+
+`CHAT_HISTORY_DATABASE_URL` is used by an isolated `pg` pool and must point to the existing database with
+`chats_pater` and `hostory_pater`. It is intentionally different from `DATABASE_URL`; Prisma continues to
+use only `DATABASE_URL`, and no migration is applied to the external tables.
+
+The access-token endpoint is a temporary bridge because CRM authentication is currently frontend-local.
+It issues a 15-minute feature-scoped JWT only for `CRM_ALLOWED_EMAILS`. Replace this endpoint with verified
+server-side sessions when CRM authentication moves to the backend.
+
+See [docs/live-conversations.md](docs/live-conversations.md) for the data contract, Railway variables,
+n8n requirements, verification commands, and deployment checklist.
 
 ## 11. Calling GET /health
 
@@ -300,9 +330,10 @@ Do not share this URL publicly — the token is in the query string.
 - Stored webhook headers are redacted (`authorization`, `cookie`, `x-api-key`, signature headers dropped)
   and are never returned by the API or rendered in the monitor.
 - All monitor output is HTML-escaped; no environment values, database URL or stack traces are rendered.
-- CORS is driven exclusively by `CORS_ORIGIN`; no wildcard origins.
-- Authentication/RBAC is not implemented yet — keep the API and monitor unpublished, and add an auth
-  layer before exposing them to end users.
+- CORS uses the explicit `CORS_ORIGIN` list plus the explicit production Prestige CRM origin; no wildcard
+  origins.
+- The live-conversations routes use a short-lived feature JWT and email allowlist. Other API routes and
+  the temporary monitor do not have user authentication/RBAC yet.
 
 ## 16. Removing the temporary monitor later
 
