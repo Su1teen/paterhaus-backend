@@ -5,6 +5,17 @@ export interface ConversationQueryClient {
   query<Row extends QueryResultRow>(text: string, values?: readonly unknown[]): Promise<QueryResult<Row>>;
 }
 
+/**
+ * Raised when the external chat-history database is unreachable or rejects a
+ * query. It exists so a read failure can never be mistaken for empty history.
+ */
+export class ChatHistoryUnavailableError extends Error {
+  constructor(readonly operation: string) {
+    super(`Chat history database operation failed: ${operation}`);
+    this.name = 'ChatHistoryUnavailableError';
+  }
+}
+
 interface ConversationListRow extends QueryResultRow {
   id: number;
   chat_id: string | null;
@@ -33,7 +44,7 @@ interface ConversationAiRow extends QueryResultRow {
   ai_resumed_at: Date | string | null;
 }
 
-interface MessageRow extends QueryResultRow {
+export interface MessageRow extends QueryResultRow {
   id: number;
   chat_id: string | null;
   username: string | null;
@@ -48,13 +59,27 @@ function escapeLikePattern(value: string): string {
 export class ConversationRepository {
   constructor(private readonly client: ConversationQueryClient = getChatHistoryPool()) {}
 
+  private async run<Row extends QueryResultRow>(
+    operation: string,
+    text: string,
+    values?: readonly unknown[],
+  ): Promise<QueryResult<Row>> {
+    try {
+      return await this.client.query<Row>(text, values);
+    } catch {
+      // The driver message can contain connection details; it is never surfaced.
+      throw new ChatHistoryUnavailableError(operation);
+    }
+  }
+
   async list(input: {
     limit: number;
     offset: number;
     search?: string;
   }): Promise<{ rows: ConversationListRow[]; hasMore: boolean }> {
     const searchPattern = input.search ? `%${escapeLikePattern(input.search)}%` : null;
-    const result = await this.client.query<ConversationListRow>(
+    const result = await this.run<ConversationListRow>(
+      'list conversations',
       `
         SELECT
           c.id,
@@ -103,7 +128,8 @@ export class ConversationRepository {
   }
 
   async findById(id: number): Promise<ConversationRow | null> {
-    const result = await this.client.query<ConversationRow>(
+    const result = await this.run<ConversationRow>(
+      'find conversation',
       `
         SELECT id, chat_id, number, username, COALESCE(ai_enabled, TRUE) AS ai_enabled, ai_resumed_at
         FROM chats_pater
@@ -115,7 +141,8 @@ export class ConversationRepository {
   }
 
   async listMessages(chatId: string): Promise<MessageRow[]> {
-    const result = await this.client.query<MessageRow>(
+    const result = await this.run<MessageRow>(
+      'list messages',
       `
         SELECT id, chat_id, username, message, time
         FROM hostory_pater
@@ -127,9 +154,35 @@ export class ConversationRepository {
     return result.rows;
   }
 
+  /**
+   * Appends an outbound human message to the history table. Called only after
+   * the downstream integration confirmed delivery.
+   */
+  async insertHumanMessage(input: {
+    chatId: string;
+    username: string;
+    text: string;
+    time: string;
+  }): Promise<MessageRow> {
+    const result = await this.run<MessageRow>(
+      'insert human message',
+      `
+        INSERT INTO hostory_pater (chat_id, username, message, time)
+        VALUES ($1, $2, $3, $4)
+        RETURNING id, chat_id, username, message, time
+      `,
+      [input.chatId, input.username, input.text, input.time],
+    );
+
+    const row = result.rows[0];
+    if (!row) throw new ChatHistoryUnavailableError('insert human message');
+    return row;
+  }
+
   async setAiEnabled(id: number, aiEnabled: boolean): Promise<ConversationAiRow | null> {
     const result = aiEnabled
-      ? await this.client.query<ConversationAiRow>(
+      ? await this.run<ConversationAiRow>(
+          'resume ai',
           `
             UPDATE chats_pater
             SET ai_enabled = TRUE, ai_resumed_at = NOW()
@@ -138,7 +191,8 @@ export class ConversationRepository {
           `,
           [id],
         )
-      : await this.client.query<ConversationAiRow>(
+      : await this.run<ConversationAiRow>(
+          'disable ai',
           `
             UPDATE chats_pater
             SET ai_enabled = FALSE

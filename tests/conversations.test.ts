@@ -7,6 +7,10 @@ import {
   ConversationRepository,
   type ConversationQueryClient,
 } from '../src/modules/conversations/conversation.repository.js';
+import type {
+  OutboundMessageRequest,
+  OutboundMessageSender,
+} from '../src/modules/conversations/conversation.outbound.js';
 
 interface QueryCall {
   text: string;
@@ -38,13 +42,41 @@ function createRepository(responses: QueryResultRow[][]): {
   return { repository: new ConversationRepository({ query }), calls };
 }
 
+/** Repository whose external database rejects every query. */
+function createFailingRepository(): ConversationRepository {
+  return new ConversationRepository({
+    query: async () => {
+      throw new Error('connection terminated unexpectedly');
+    },
+  });
+}
+
 const apps: FastifyInstance[] = [];
 const TEST_CRM_JWT_SECRET = 'test_crm_jwt_secret_value_0123456789';
 
-async function createApp(repository?: ConversationRepository): Promise<FastifyInstance> {
-  const app = await buildApp({ conversations: { repository } });
+async function createApp(
+  repository?: ConversationRepository,
+  outboundSender?: OutboundMessageSender | null,
+): Promise<FastifyInstance> {
+  const app = await buildApp({ conversations: { repository, outboundSender } });
   apps.push(app);
   return app;
+}
+
+function createOutboundSender(behaviour: 'ok' | 'fail' = 'ok'): {
+  sender: OutboundMessageSender;
+  sent: OutboundMessageRequest[];
+} {
+  const sent: OutboundMessageRequest[] = [];
+  return {
+    sent,
+    sender: {
+      async send(request) {
+        if (behaviour === 'fail') throw new Error('waha unreachable');
+        sent.push(request);
+      },
+    },
+  };
 }
 
 async function accessToken(app: FastifyInstance, email = ' INFO@PATERHAUS.COM '): Promise<string> {
@@ -318,5 +350,231 @@ describe('Paterhaus live conversations API', () => {
 
     expect(invalid.statusCode).toBe(400);
     expect(missing.statusCode).toBe(404);
+  });
+
+  it('reports an external database failure instead of an empty history', async () => {
+    const app = await createApp(createFailingRepository());
+    const token = await accessToken(app);
+
+    const list = await app.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations',
+      headers: { authorization: `Bearer ${token}` },
+    });
+    const history = await app.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(list.statusCode).toBe(503);
+    expect(history.statusCode).toBe(503);
+    expect(history.json().messages).toBeUndefined();
+    expect(history.body).not.toContain('connection terminated');
+  });
+
+  it('returns an empty history for a conversation without messages', async () => {
+    const { repository } = createRepository([
+      [{ id: 6, chat_id: 'canonical-chat-id', number: '7702', username: 'Sultan', ai_enabled: true }],
+      [],
+    ]);
+    const app = await createApp(repository);
+    const token = await accessToken(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().messages).toEqual([]);
+  });
+
+  it('reports manual reply support from the configured outbound integration', async () => {
+    const withoutSender = await createApp(undefined, null);
+    const unsupported = await withoutSender.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/capabilities',
+      headers: { authorization: `Bearer ${await accessToken(withoutSender)}` },
+    });
+
+    const withSender = await createApp(undefined, createOutboundSender().sender);
+    const supported = await withSender.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/capabilities',
+      headers: { authorization: `Bearer ${await accessToken(withSender)}` },
+    });
+
+    expect(unsupported.json()).toMatchObject({ manualMessages: false, attachments: false });
+    expect(supported.json()).toMatchObject({ manualMessages: true, attachments: false });
+  });
+
+  it('sends a human takeover reply and stores it as human:<email>', async () => {
+    const { repository, calls } = createRepository([
+      [{ id: 6, chat_id: 'canonical-chat-id', number: '77021464983', username: 'Sultan', ai_enabled: false }],
+      [
+        {
+          id: 25,
+          chat_id: 'canonical-chat-id',
+          username: 'human:info@paterhaus.com',
+          message: 'Hello from the manager',
+          time: '2026-08-29, 10:00:00.000',
+        },
+      ],
+    ]);
+    const outbound = createOutboundSender();
+    const app = await createApp(repository, outbound.sender);
+    const token = await accessToken(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}`, 'idempotency-key': 'send-key-000001' },
+      payload: { text: 'Hello from the manager' },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json().message).toMatchObject({
+      id: 25,
+      senderType: 'human',
+      senderName: 'info@paterhaus.com',
+      direction: 'outbound',
+    });
+    expect(outbound.sent).toEqual([
+      expect.objectContaining({
+        chatId: 'canonical-chat-id',
+        authorizedEmail: 'info@paterhaus.com',
+        idempotencyKey: 'send-key-000001',
+      }),
+    ]);
+    expect(calls[1]?.text).toContain('INSERT INTO hostory_pater');
+    expect(calls[1]?.values?.[1]).toBe('human:info@paterhaus.com');
+  });
+
+  it('rejects a manual reply while AI is still active', async () => {
+    const { repository, calls } = createRepository([
+      [{ id: 6, chat_id: 'canonical-chat-id', number: '7702', username: 'Sultan', ai_enabled: true }],
+    ]);
+    const outbound = createOutboundSender();
+    const app = await createApp(repository, outbound.sender);
+    const token = await accessToken(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { text: 'Hello' },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(outbound.sent).toEqual([]);
+    expect(calls).toHaveLength(1);
+  });
+
+  it('rejects malformed manual replies and unknown conversations', async () => {
+    const { repository } = createRepository([[]]);
+    const app = await createApp(repository, createOutboundSender().sender);
+    const token = await accessToken(app);
+
+    const empty = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { text: '   ' },
+    });
+    const missing = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/99/messages',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { text: 'Hello' },
+    });
+    const unauthenticated = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      payload: { text: 'Hello' },
+    });
+
+    expect(empty.statusCode).toBe(400);
+    expect(missing.statusCode).toBe(404);
+    expect(unauthenticated.statusCode).toBe(401);
+  });
+
+  it('does not persist history when the outbound integration fails', async () => {
+    const { repository, calls } = createRepository([
+      [{ id: 6, chat_id: 'canonical-chat-id', number: '7702', username: 'Sultan', ai_enabled: false }],
+    ]);
+    const app = await createApp(repository, createOutboundSender('fail').sender);
+    const token = await accessToken(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { text: 'Hello' },
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.body).not.toContain('waha');
+    expect(calls.some((call) => call.text.includes('INSERT INTO hostory_pater'))).toBe(false);
+  });
+
+  it('reports manual replies as unavailable when no outbound integration is configured', async () => {
+    const { repository } = createRepository([
+      [{ id: 6, chat_id: 'canonical-chat-id', number: '7702', username: 'Sultan', ai_enabled: false }],
+    ]);
+    const app = await createApp(repository, null);
+    const token = await accessToken(app);
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+      payload: { text: 'Hello' },
+    });
+
+    expect(response.statusCode).toBe(503);
+  });
+
+  it('sends only once for a repeated idempotency key', async () => {
+    const conversationRow = {
+      id: 6,
+      chat_id: 'canonical-chat-id',
+      number: '7702',
+      username: 'Sultan',
+      ai_enabled: false,
+    };
+    const insertedRow = {
+      id: 25,
+      chat_id: 'canonical-chat-id',
+      username: 'human:info@paterhaus.com',
+      message: 'Hello',
+      time: '2026-08-29, 10:00:00.000',
+    };
+    const { repository } = createRepository([
+      [conversationRow],
+      [insertedRow],
+      [conversationRow],
+      [insertedRow],
+    ]);
+    const outbound = createOutboundSender();
+    const app = await createApp(repository, outbound.sender);
+    const token = await accessToken(app);
+
+    const send = async () =>
+      app.inject({
+        method: 'POST',
+        url: '/api/paterhaus/conversations/6/messages',
+        headers: { authorization: `Bearer ${token}`, 'idempotency-key': 'repeated-key-1' },
+        payload: { text: 'Hello' },
+      });
+
+    const first = await send();
+    const second = await send();
+
+    expect(first.statusCode).toBe(201);
+    expect(second.statusCode).toBe(201);
+    expect(second.json().message.id).toBe(25);
+    expect(outbound.sent).toHaveLength(1);
   });
 });

@@ -13,6 +13,18 @@ const envSchema = z.object({
   INTERNAL_DASHBOARD_SECRET: z.string().min(1, 'INTERNAL_DASHBOARD_SECRET is required'),
   // Optional: when unset/empty, the legacy GET connector adapter rejects every request with 401.
   CONNECTOR_WEBHOOK_TOKEN: z.string().default(''),
+  // Optional: protected n8n webhook that forwards human takeover replies to WAHA.
+  // When unset, manual replies are reported as unsupported instead of failing silently.
+  N8N_OUTBOUND_WEBHOOK_URL: z
+    .string()
+    .trim()
+    .url('N8N_OUTBOUND_WEBHOOK_URL must be a valid URL')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  N8N_OUTBOUND_WEBHOOK_TOKEN: z.string().default(''),
+  // Optional override for the lead classification table in the chat-history database.
+  // When unset, the table is discovered from its column signature.
+  LEAD_CLASSIFICATIONS_TABLE: z.string().trim().default(''),
   CORS_ORIGIN: z.string().min(1, 'CORS_ORIGIN is required'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent']).default('info'),
 });
@@ -20,6 +32,7 @@ const envSchema = z.object({
 export type Env = z.infer<typeof envSchema> & {
   corsOrigins: string[];
   crmAllowedEmails: ReadonlySet<string>;
+  manualRepliesEnabled: boolean;
 };
 
 function buildEnv(): Env {
@@ -52,7 +65,12 @@ function buildEnv(): Env {
     throw new Error('Invalid environment configuration:\nCRM_ALLOWED_EMAILS: at least one email is required');
   }
 
-  return { ...parsed.data, corsOrigins, crmAllowedEmails };
+  return {
+    ...parsed.data,
+    corsOrigins,
+    crmAllowedEmails,
+    manualRepliesEnabled: Boolean(parsed.data.N8N_OUTBOUND_WEBHOOK_URL),
+  };
 }
 
 let cached: Env | undefined;

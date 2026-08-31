@@ -8,7 +8,7 @@ export async function registerCors(app: FastifyInstance): Promise<void> {
   await app.register(fastifyCors, {
     origin: corsOrigins,
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Idempotency-Key'],
     credentials: false,
     maxAge: 86400,
   });

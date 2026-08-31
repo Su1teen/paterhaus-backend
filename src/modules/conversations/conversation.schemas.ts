@@ -21,4 +21,11 @@ export const updateConversationAiSchema = z.object({
   aiEnabled: z.boolean(),
 });
 
+export const MAX_MANUAL_MESSAGE_LENGTH = 4096;
+
+export const sendConversationMessageSchema = z.object({
+  text: z.string().trim().min(1, 'text is required').max(MAX_MANUAL_MESSAGE_LENGTH),
+  idempotencyKey: z.string().trim().min(8).max(128).optional(),
+});
+
 export type ConversationListQuery = z.infer<typeof conversationListQuerySchema>;
