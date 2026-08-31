@@ -51,6 +51,19 @@ function isValidCalendarDate(parts: DateParts): boolean {
   );
 }
 
+/**
+ * Renders an instant in the `YYYY-MM-DD, HH:MM:SS.mmm` Almaty-local text format
+ * already used by the n8n/WAHA writers of `hostory_pater.time`.
+ */
+export function formatAlmatyTime(date: Date): string {
+  const parts = formattedParts(date);
+  const pad = (value: number, length = 2): string => String(value).padStart(length, '0');
+  return (
+    `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}, ` +
+    `${pad(parts.hour)}:${pad(parts.minute)}:${pad(parts.second)}.${pad(date.getMilliseconds(), 3)}`
+  );
+}
+
 export function parseAlmatyTime(value: string | null): string | null {
   if (!value) return null;
 

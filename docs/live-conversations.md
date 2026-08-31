@@ -28,6 +28,9 @@ Set these on the **paterhaus-backend Railway service**:
 | `CRM_JWT_SECRET` | At least 32 random characters, used only for short-lived conversation JWTs. |
 | `CRM_ALLOWED_EMAILS` | Comma-separated normalized allowlist, currently `info@paterhaus.com,r_tszi@paterhaus.com`. |
 | `CORS_ORIGIN` | Local and any additional explicit CRM origins; no wildcard production origins. |
+| `N8N_OUTBOUND_WEBHOOK_URL` | Optional. Protected n8n webhook that relays human takeover replies to WAHA. Manual replies stay disabled while it is unset. |
+| `N8N_OUTBOUND_WEBHOOK_TOKEN` | Optional. Sent as `Authorization: Bearer …` to that webhook. |
+| `LEAD_CLASSIFICATIONS_TABLE` | Optional. Pins the AI lead-classification table name in the chat-history database instead of resolving it from its column signature. |
 
 No secrets are committed. Local implementation did not apply Railway variables or deploy either service.
 
@@ -50,8 +53,62 @@ JWT. It must be replaced by verified server-side authentication when that become
 
 Included: conversation list, ordered history, polling support, and AI takeover/resume state updates.
 
-Out of scope: manual message sending, manager outbound messages, WAHA calls, attachments, media
-processing, and changes to the external database schema.
+## Phase 2 scope
+
+Included: explicit failure states for the external database (503 instead of an empty history), human
+takeover replies through the protected n8n webhook, a capability probe, and read-only AI lead
+classifications for the Owner Pipeline.
+
+Out of scope: attachments and media processing (no upload path exists through backend → n8n → WAHA, so
+the capability is reported as `false` and the CRM shows no attachment control), direct WAHA calls from the
+backend or browser, and changes to the external database schema.
+
+### Human takeover replies
+
+```text
+POST /api/paterhaus/conversations/:conversationId/messages
+Authorization: Bearer <conversation access token>
+Idempotency-Key: <optional client key>
+{ "text": "message text" }
+-> 201 { "message": { "id", "chatId", "senderName", "senderType", "direction", "text", "timeRaw", "sentAt" } }
+```
+
+| Status | Cause |
+| --- | --- |
+| 400 | Missing/blank/oversized text, or a non-positive conversation id. |
+| 401 | Missing, invalid, or expired bearer token. |
+| 403 | Valid token whose account is not allowlisted. |
+| 404 | Conversation id not present in `chats_pater`. |
+| 409 | AI is still enabled for the conversation, or the same idempotency key is in flight. |
+| 422 | Conversation has no canonical `chat_id`. |
+| 503 | Manual replies not configured, outbound delivery failed, or the chat-history database is unavailable. |
+
+Order of operations: verify auth → verify conversation and canonical `chat_id` → verify AI is disabled →
+send through n8n → insert into `hostory_pater` as `human:<authorized email>`. A failed downstream send
+therefore never persists a message. Repeated `Idempotency-Key` values return the first stored message for
+10 minutes instead of sending twice.
+
+n8n must expose a webhook that accepts `{ conversationId, chatId, number, text, sentBy, idempotencyKey }`,
+sends the text to the WAHA chat identified by `chatId`, and responds 2xx only after WAHA accepted it. WAHA
+credentials stay in n8n. The webhook should treat `Idempotency-Key` as a de-duplication key.
+
+`GET /api/paterhaus/conversations/capabilities` returns `{ manualMessages, attachments, maxMessageLength }`
+so the CRM hides the composer entirely instead of offering a send that cannot work.
+
+### Lead classifications
+
+```text
+GET /api/paterhaus/lead-classifications?limit=100&cursor=0
+-> 200 { "items": [...], "nextCursor": null, "supportsArchive": false }
+```
+
+Each item maps the n8n table one-to-one: `id`, `chatId`, `number`, `username`, `name`, `displayName`,
+`summary`, `leadType`, `stage`, `priority`, `workType`, `createdAt`, `updatedAt`, `isActive`. Rows are sorted
+by `updated_at DESC NULLS LAST, id DESC`. `isActive` is `null` and `supportsArchive` is `false` when the
+deployed table has no `is_active` column — the CRM then shows no archive affordance. The table is resolved
+once per process from the required columns (`chat_id`, `lead_type`, `stage`, `priority`, `work_type`,
+`summary`) unless `LEAD_CLASSIFICATIONS_TABLE` pins it. No foreign key to `chats_pater` is created; `chat_id`
+is the logical link.
 
 ## File summary
 
@@ -60,8 +117,13 @@ processing, and changes to the external database schema.
 - `src/modules/conversations/conversation.repository.ts`: parameterized SQL and canonical `chat_id` joins.
 - `src/modules/conversations/conversation.service.ts`: API mapping and contact/sender fallbacks.
 - `src/modules/conversations/conversation.time.ts`: safe Asia/Almaty time normalization.
-- `src/modules/conversations/conversation.routes.ts`: access-token, list, history, and AI routes.
-- `tests/conversations.test.ts`: token, guard, ordering, AI detection, and toggle coverage.
+- `src/modules/conversations/conversation.routes.ts`: access-token, capabilities, list, history, manual send,
+  and AI routes.
+- `src/modules/conversations/conversation.outbound.ts`: protected n8n relay with timeout and safe failures.
+- `src/modules/lead-classifications/*`: table discovery, read-only query, and API mapping.
+- `tests/conversations.test.ts`: token, guard, ordering, AI detection, toggle, manual-send, idempotency, and
+  external-database failure coverage.
+- `tests/lead-classifications.test.ts`: auth, mapping, sort, `is_active` detection, and failure coverage.
 
 ## Local verification
 
@@ -74,7 +136,7 @@ npm run build
 Local results:
 
 - `npm run typecheck`: passed.
-- Full test suite: 61 tests passed.
+- Full test suite: 75 tests passed.
 - `npm run build`: passed.
 
 ## Manual deployment checklist
@@ -83,6 +145,9 @@ Local results:
 
 1. Confirm `DATABASE_URL` still references the existing Prisma database.
 2. Add `CHAT_HISTORY_DATABASE_URL`, `CRM_JWT_SECRET`, and `CRM_ALLOWED_EMAILS`.
+2a. To enable human takeover replies, add `N8N_OUTBOUND_WEBHOOK_URL` (and `N8N_OUTBOUND_WEBHOOK_TOKEN` if
+   the webhook is token-protected). Until then `GET .../capabilities` reports `manualMessages: false`.
+2b. Add `LEAD_CLASSIFICATIONS_TABLE` if the classification table cannot be resolved automatically.
 3. Confirm `CORS_ORIGIN` retains required local origins and any additional explicit CRM origin.
 4. Deploy the backend and check `/health`.
 5. Request a token with an allowed email, then verify list, history, disable, and enable routes.

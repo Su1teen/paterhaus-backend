@@ -9,6 +9,10 @@ import {
 import { healthRoutes } from './modules/health/health.routes.js';
 import { integrationRoutes } from './modules/integrations/integration.routes.js';
 import { internalMonitorRoutes } from './modules/internal/monitor.routes.js';
+import {
+  leadClassificationRoutes,
+  type LeadClassificationRouteOptions,
+} from './modules/lead-classifications/lead-classification.routes.js';
 import { leadRoutes } from './modules/leads/lead.routes.js';
 import { webhookRoutes } from './modules/webhooks/webhook.routes.js';
 import { registerCors } from './plugins/cors.js';
@@ -40,6 +44,7 @@ function sanitizeUrl(url: string | undefined): string {
 
 export interface BuildAppOptions {
   conversations?: ConversationRouteOptions;
+  leadClassifications?: LeadClassificationRouteOptions;
 }
 
 export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyInstance> {
@@ -74,6 +79,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(leadRoutes);
   await app.register(campaignRoutes);
   await app.register(conversationRoutes, options.conversations ?? {});
+  await app.register(leadClassificationRoutes, options.leadClassifications ?? {});
   await app.register(integrationRoutes);
   await app.register(internalMonitorRoutes);
 

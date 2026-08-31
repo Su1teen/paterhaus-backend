@@ -28,6 +28,18 @@ export function forbidden(message = 'Forbidden'): HttpError {
   return new HttpError(403, message);
 }
 
+export function conflict(message = 'Conflict'): HttpError {
+  return new HttpError(409, message);
+}
+
+export function unprocessable(message = 'Unprocessable Entity'): HttpError {
+  return new HttpError(422, message);
+}
+
+export function serviceUnavailable(message = 'Service temporarily unavailable'): HttpError {
+  return new HttpError(503, message);
+}
+
 /**
  * Central error handler. Client-facing responses never contain stack traces,
  * driver messages or environment details.

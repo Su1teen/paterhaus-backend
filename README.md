@@ -181,9 +181,12 @@ The protected API routes are:
 
 ```text
 POST  /api/paterhaus/conversations/access-token
+GET   /api/paterhaus/conversations/capabilities
 GET   /api/paterhaus/conversations
 GET   /api/paterhaus/conversations/:conversationId/messages
+POST  /api/paterhaus/conversations/:conversationId/messages
 PATCH /api/paterhaus/conversations/:conversationId/ai
+GET   /api/paterhaus/lead-classifications
 ```
 
 `CHAT_HISTORY_DATABASE_URL` is used by an isolated `pg` pool and must point to the existing database with
@@ -196,6 +199,34 @@ server-side sessions when CRM authentication moves to the backend.
 
 See [docs/live-conversations.md](docs/live-conversations.md) for the data contract, Railway variables,
 n8n requirements, verification commands, and deployment checklist.
+
+### Human takeover replies
+
+`POST /api/paterhaus/conversations/:conversationId/messages` accepts `{ "text": "..." }` (optionally an
+`Idempotency-Key` header or `idempotencyKey` body field) and is rejected with 409 while AI is still enabled
+for the conversation. The backend forwards the message to the protected n8n webhook and writes the row into
+`hostory_pater` as `human:<authorized email>` only after the webhook confirmed delivery, so a failed send
+never leaves a phantom message. WAHA credentials stay inside n8n; the browser never talks to WAHA.
+
+Manual replies stay disabled until `N8N_OUTBOUND_WEBHOOK_URL` is configured — `GET .../capabilities` then
+reports `manualMessages: false` and the CRM hides the composer instead of pretending to send. Attachments
+are reported as `false`: no upload path exists through backend → n8n → WAHA yet.
+
+```env
+N8N_OUTBOUND_WEBHOOK_URL=https://n8n.example.com/webhook/paterhaus-outbound
+# Sent as `Authorization: Bearer ...` when set.
+N8N_OUTBOUND_WEBHOOK_TOKEN=replace_with_a_long_random_token
+```
+
+Webhook request body (JSON): `conversationId`, `chatId`, `number`, `text`, `sentBy`, `idempotencyKey`.
+
+### Lead classifications (Owner Pipeline)
+
+`GET /api/paterhaus/lead-classifications` reads the n8n-produced classification table from the chat-history
+database (`chat_id`, `number`, `username`, `name`, `summary`, `lead_type`, `stage`, `priority`, `work_type`,
+`created_at`, `updated_at`), sorted by `updated_at DESC`. The table name differs per deployment, so it is
+resolved from its column signature; set `LEAD_CLASSIFICATIONS_TABLE` to pin it explicitly. `is_active` is
+used for archive filtering only when the deployed table actually has that column.
 
 ## 11. Calling GET /health
 
