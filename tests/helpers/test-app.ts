@@ -42,6 +42,7 @@ export async function resetDatabase(): Promise<void> {
   await prisma.campaign.deleteMany();
   await prisma.integrationMapping.deleteMany();
   await prisma.user.deleteMany();
+  await prisma.calendarEvent.deleteMany();
 }
 
 export async function seedServiceMappings(): Promise<void> {

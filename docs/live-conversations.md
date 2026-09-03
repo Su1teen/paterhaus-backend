@@ -102,13 +102,75 @@ GET /api/paterhaus/lead-classifications?limit=100&cursor=0
 -> 200 { "items": [...], "nextCursor": null, "supportsArchive": false }
 ```
 
-Each item maps the n8n table one-to-one: `id`, `chatId`, `number`, `username`, `name`, `displayName`,
+Each item maps the n8n table one-to-one: `id`, `chatId`, `number`, `username`, `name`, `email`, `displayName`,
 `summary`, `leadType`, `stage`, `priority`, `workType`, `createdAt`, `updatedAt`, `isActive`. Rows are sorted
-by `updated_at DESC NULLS LAST, id DESC`. `isActive` is `null` and `supportsArchive` is `false` when the
-deployed table has no `is_active` column — the CRM then shows no archive affordance. The table is resolved
-once per process from the required columns (`chat_id`, `lead_type`, `stage`, `priority`, `work_type`,
+by priority (`Urgent`, `High`, `Medium`, `Low`, then anything else) and then `updated_at DESC NULLS LAST, id DESC`.
+`isActive` is `null` and `supportsArchive` is `false` when the deployed table has no `is_active` column — the
+CRM then shows no archive affordance. `email` is `null` when the table has no `email` column. The table is
+resolved once per process from the required columns (`chat_id`, `lead_type`, `stage`, `priority`, `work_type`,
 `summary`) unless `LEAD_CLASSIFICATIONS_TABLE` pins it. No foreign key to `chats_pater` is created; `chat_id`
 is the logical link.
+
+#### `lead_type` is the PROPERTY type
+
+`pater_classification.lead_type` no longer describes who the contact is. It holds exactly one of
+`Apartment`, `Villa`, `Townhouse`, `Studio`, `Other` (flats -> `Apartment`; commercial, land, hotel rooms,
+vendors, partners, guests without details and anything unmatched -> `Other`). The legacy identity values
+`owner`, `guest`, `partner`, `unknown` must not be written anymore; identity belongs in `summary`. The AI
+classification prompt in n8n must be updated to this contract by hand — no workflow definitions live in this
+repository, so nothing is changed automatically. `docs/sql/pater_classification_manual_leads.sql` remaps any
+legacy rows to `Other`.
+
+`work_type` holds the requested service: `Staging`, `Snagging` or `Property Management`.
+
+### Manual leads
+
+```text
+POST /api/paterhaus/leads/manual
+Authorization: Bearer <CRM JWT>
+{ "name": "Ivan Ivanov", "phoneNumber": "+77001234567", "email": "ivan@example.com",
+  "propertyType": "Apartment", "service": "Snagging" }
+-> 201 (created) | 200 (existing row updated)
+{ "id": 1, "chatId": "77001234567", "number": "77001234567", "username": null, "name": "Ivan Ivanov",
+  "email": "ivan@example.com", "displayName": "Ivan Ivanov",
+  "summary": "Manual lead created from CRM. Conversation has not started yet.",
+  "leadType": "Apartment", "stage": "new", "priority": "Medium", "workType": "Snagging",
+  "createdAt": "<ISO>", "updatedAt": "<ISO>", "isActive": null }
+```
+
+- Authorization is two-layered and server-side: the CRM JWT must be valid and the account must be in
+  `CRM_ALLOWED_EMAILS`, **and** the (trimmed, lowercased) email must be one of the hardcoded manual-lead
+  accounts `info@paterhaus.com` / `r_tszi@paterhaus.com` (`MANUAL_LEAD_ALLOWED_EMAILS`). Anyone else gets `403`.
+- `phoneNumber` (required) is reduced to digits: spaces, hyphens, dots, parentheses and a leading `+` are
+  removed, nothing is prepended (`+971 50 123 4567`, `971501234567` and `0501234567` are all accepted). The
+  result must be 7–15 digits and is written to **both** `chat_id` and `number`. Blank/invalid -> `400`.
+- `name` / `email` are optional; blank becomes `NULL`; a non-blank `email` must be a valid address.
+- `propertyType` -> `lead_type`, `service` -> `work_type`; both are strict enums (see above).
+- New rows: `username = NULL`, `summary` = the fixed manual text, `stage = new`, `priority = Medium`,
+  `created_at`/`updated_at` from PostgreSQL `NOW()`.
+- Existing row with the same `chat_id`: never duplicated. Non-empty `name`/`email` overwrite, `lead_type` and
+  `work_type` are replaced, a richer existing `summary`, `stage` and `priority` are kept (blanks are filled with
+  the defaults), `updated_at = NOW()`. If two requests race and the second insert hits the unique constraint,
+  it falls back to the update path.
+- The `email` column is written only when the deployed table has it. Apply
+  `docs/sql/pater_classification_manual_leads.sql` once to the chat-history database to add `email`, make
+  `chat_id` `NOT NULL UNIQUE`, and remap legacy `lead_type` values. This script is **not** run automatically.
+
+### Calendar events
+
+Persistent calendar for the allowlisted CRM accounts, stored in the Prisma database (`CalendarEvent`,
+migration `20260903014853_calendar_events`). Dates are Asia/Dubai calendar days (`YYYY-MM-DD`) and optional
+`HH:MM` local times; the server performs no timezone conversion.
+
+```text
+GET    /api/paterhaus/calendar/events?from=2026-09-01&to=2026-09-30  -> 200 { items: [...], timeZone: "Asia/Dubai" }
+POST   /api/paterhaus/calendar/events
+       { title, eventDate, description?, startTime?, endTime?, kind? }  -> 201 event
+DELETE /api/paterhaus/calendar/events/:eventId                        -> 204 | 404
+```
+
+`kind` is one of `operation` (default), `booking`, `blocked`, `risk`, `occupied`. Each event records
+`createdBy` (the token email). All three routes use the same CRM JWT guard as conversations.
 
 ## File summary
 
@@ -120,10 +182,16 @@ is the logical link.
 - `src/modules/conversations/conversation.routes.ts`: access-token, capabilities, list, history, manual send,
   and AI routes.
 - `src/modules/conversations/conversation.outbound.ts`: protected n8n relay with timeout and safe failures.
-- `src/modules/lead-classifications/*`: table discovery, read-only query, and API mapping.
+- `src/modules/lead-classifications/*`: table discovery, priority-sorted query, manual-lead upsert, property-type
+  and service enums, and API mapping.
+- `src/modules/calendar/*`: persistent Asia/Dubai calendar events (Prisma).
+- `docs/sql/pater_classification_manual_leads.sql`: one-off script for the chat-history database (`email`
+  column, `chat_id` NOT NULL UNIQUE, legacy `lead_type` remap).
 - `tests/conversations.test.ts`: token, guard, ordering, AI detection, toggle, manual-send, idempotency, and
   external-database failure coverage.
-- `tests/lead-classifications.test.ts`: auth, mapping, sort, `is_active` detection, and failure coverage.
+- `tests/lead-classifications.test.ts`: auth, mapping, sort, `is_active` detection, manual-lead allowlist,
+  phone normalization, NULL handling, validation, dedupe/update, race fallback, and failure coverage.
+- `tests/calendar.test.ts`: calendar auth, create/list/delete persistence, range filtering, validation.
 
 ## Local verification
 
@@ -148,6 +216,9 @@ Local results:
 2a. To enable human takeover replies, add `N8N_OUTBOUND_WEBHOOK_URL` (and `N8N_OUTBOUND_WEBHOOK_TOKEN` if
    the webhook is token-protected). Until then `GET .../capabilities` reports `manualMessages: false`.
 2b. Add `LEAD_CLASSIFICATIONS_TABLE` if the classification table cannot be resolved automatically.
+2c. Run `docs/sql/pater_classification_manual_leads.sql` against the chat-history database (check for
+   duplicate `chat_id` values first). Prisma migrations (`CalendarEvent`) apply via `prisma migrate deploy`.
+2d. Update the n8n classification prompt so `lead_type` is a property type (see above).
 3. Confirm `CORS_ORIGIN` retains required local origins and any additional explicit CRM origin.
 4. Deploy the backend and check `/health`.
 5. Request a token with an allowed email, then verify list, history, disable, and enable routes.
