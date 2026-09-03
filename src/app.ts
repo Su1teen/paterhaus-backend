@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { getEnv } from './config/env.js';
 import { closeChatHistoryPool } from './lib/chat-history-db.js';
+import { calendarRoutes } from './modules/calendar/calendar.routes.js';
 import { campaignRoutes } from './modules/campaigns/campaign.routes.js';
 import {
   conversationRoutes,
@@ -80,6 +81,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(campaignRoutes);
   await app.register(conversationRoutes, options.conversations ?? {});
   await app.register(leadClassificationRoutes, options.leadClassifications ?? {});
+  await app.register(calendarRoutes);
   await app.register(integrationRoutes);
   await app.register(internalMonitorRoutes);
 

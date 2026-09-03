@@ -1,7 +1,12 @@
 import type { FastifyInstance } from 'fastify';
 import { requireConversationAccess } from '../conversations/conversation.auth.js';
 import { LeadClassificationRepository } from './lead-classification.repository.js';
-import { leadClassificationListQuerySchema } from './lead-classification.schemas.js';
+import {
+  LEAD_PROPERTY_TYPES,
+  LEAD_SERVICES,
+  leadClassificationListQuerySchema,
+  manualLeadRequestSchema,
+} from './lead-classification.schemas.js';
 import { LeadClassificationService } from './lead-classification.service.js';
 
 export interface LeadClassificationRouteOptions {
@@ -31,5 +36,33 @@ export async function leadClassificationRoutes(
       },
     },
     async (request) => service.list(leadClassificationListQuerySchema.parse(request.query)),
+  );
+
+  app.post(
+    '/api/paterhaus/leads/manual',
+    {
+      preHandler: requireConversationAccess,
+      schema: {
+        tags: ['paterhaus-conversations'],
+        summary: 'Create or update a manual lead in pater_classification (allowlisted CRM accounts only)',
+        body: {
+          type: 'object',
+          required: ['phoneNumber', 'propertyType', 'service'],
+          additionalProperties: false,
+          properties: {
+            name: { type: ['string', 'null'], maxLength: 200 },
+            phoneNumber: { type: 'string', minLength: 1, maxLength: 40 },
+            email: { type: ['string', 'null'], maxLength: 254 },
+            propertyType: { type: 'string', enum: [...LEAD_PROPERTY_TYPES] },
+            service: { type: 'string', enum: [...LEAD_SERVICES] },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const input = manualLeadRequestSchema.parse(request.body);
+      const result = await service.createManual(input, request.conversationAccessEmail ?? '');
+      return reply.status(result.created ? 201 : 200).send(result.lead);
+    },
   );
 }
