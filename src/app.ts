@@ -1,6 +1,10 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import { getEnv } from './config/env.js';
 import { closeChatHistoryPool } from './lib/chat-history-db.js';
+import {
+  attachmentRoutes,
+  type AttachmentRouteOptions,
+} from './modules/attachments/attachment.routes.js';
 import { calendarRoutes } from './modules/calendar/calendar.routes.js';
 import { campaignRoutes } from './modules/campaigns/campaign.routes.js';
 import {
@@ -44,6 +48,7 @@ function sanitizeUrl(url: string | undefined): string {
 }
 
 export interface BuildAppOptions {
+  attachments?: AttachmentRouteOptions;
   conversations?: ConversationRouteOptions;
   leadClassifications?: LeadClassificationRouteOptions;
 }
@@ -80,6 +85,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(leadRoutes);
   await app.register(campaignRoutes);
   await app.register(conversationRoutes, options.conversations ?? {});
+  await app.register(attachmentRoutes, options.attachments ?? {});
   await app.register(leadClassificationRoutes, options.leadClassifications ?? {});
   await app.register(calendarRoutes);
   await app.register(integrationRoutes);

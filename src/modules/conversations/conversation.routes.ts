@@ -18,11 +18,14 @@ import {
 } from './conversation.outbound.js';
 import { ConversationService } from './conversation.service.js';
 import { randomUUID } from 'node:crypto';
+import { AttachmentRepository } from '../attachments/attachment.repository.js';
 
 export interface ConversationRouteOptions {
   repository?: ConversationRepository;
   /** `null` disables manual replies; omit to derive the sender from the environment. */
   outboundSender?: OutboundMessageSender | null;
+  /** `null` keeps legacy tests/connections working without the attachment table. */
+  attachmentRepository?: AttachmentRepository | null;
 }
 
 const conversationTag = { tags: ['paterhaus-conversations'] } as const;
@@ -33,7 +36,11 @@ export async function conversationRoutes(
 ): Promise<void> {
   const outboundSender =
     options.outboundSender === undefined ? createOutboundMessageSender() : options.outboundSender;
-  const service = new ConversationService(options.repository, outboundSender);
+  const attachmentRepository =
+    options.attachmentRepository === undefined
+      ? new AttachmentRepository()
+      : options.attachmentRepository;
+  const service = new ConversationService(options.repository, outboundSender, attachmentRepository);
 
   // Temporary bridge while CRM login is frontend-local; replace with verified server sessions.
   app.post(
@@ -64,8 +71,10 @@ export async function conversationRoutes(
     },
     async () => ({
       manualMessages: service.manualRepliesSupported,
-      // No upload path exists through the backend/n8n/WAHA chain yet.
+      // Legacy field: outbound manager attachment upload remains unsupported.
       attachments: false,
+      manualAttachments: false,
+      incomingAttachments: true,
       maxMessageLength: MAX_MANUAL_MESSAGE_LENGTH,
     }),
   );

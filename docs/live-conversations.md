@@ -209,6 +209,29 @@ Local results:
 
 ## Manual deployment checklist
 
+### Incoming attachments and safe downloads
+
+Incoming media bytes are owned by WAHA and stored in a private Railway S3-compatible Bucket. The
+backend stores no binary data. n8n inserts metadata into `pater_attachments` in
+`CHAT_HISTORY_DATABASE_URL` after the associated `hostory_pater` insert returns its ID. Message history
+joins attachments by `history_id`; file listing uses `GET /api/paterhaus/files`; download requests use
+`POST /api/paterhaus/attachments/:attachmentId/download-url` and expire after 300 seconds.
+
+Set all of `ATTACHMENTS_S3_ENDPOINT`, `ATTACHMENTS_S3_REGION`, `ATTACHMENTS_S3_BUCKET`,
+`ATTACHMENTS_S3_ACCESS_KEY_ID`, and `ATTACHMENTS_S3_SECRET_ACCESS_KEY` together. They are backend-only.
+The S3 client uses virtual-hosted style.
+
+Railway runs `npm run chat-history:migrate` before deployment. The runner uses
+`CHAT_HISTORY_DATABASE_URL`, a transaction, an advisory lock and `pater_system_migrations` to execute
+`20260922_001_attachments_escalations.sql` once. Repeated deploys skip it. Failure rolls back and exits
+non-zero; the SQL is create-only and never modifies or recreates `chats_pater`, `hostory_pater`, or
+`pater_classification`. `pater_ai_escalations` is included only as the persistence/API foundation for a
+later Telegram/n8n phase; no Telegram workflow is implemented here.
+
+Manual replies are persisted as `human:ruslan`. The outbound n8n payload sends
+`sentBy: "human:ruslan"` and carries `authorizedEmail` separately for audit context. Failed downstream
+delivery still creates no history row.
+
 ### Backend service
 
 1. Confirm `DATABASE_URL` still references the existing Prisma database.

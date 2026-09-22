@@ -11,6 +11,10 @@ import type {
   OutboundMessageRequest,
   OutboundMessageSender,
 } from '../src/modules/conversations/conversation.outbound.js';
+import {
+  AttachmentRepository,
+  type AttachmentQueryClient,
+} from '../src/modules/attachments/attachment.repository.js';
 
 interface QueryCall {
   text: string;
@@ -42,6 +46,14 @@ function createRepository(responses: QueryResultRow[][]): {
   return { repository: new ConversationRepository({ query }), calls };
 }
 
+function createAttachmentRepository(responses: QueryResultRow[][]): AttachmentRepository {
+  const query: AttachmentQueryClient['query'] = async <Row extends QueryResultRow>(
+    _text: string,
+    _values?: readonly unknown[],
+  ) => queryResult((responses.shift() ?? []) as Row[]);
+  return new AttachmentRepository({ query });
+}
+
 /** Repository whose external database rejects every query. */
 function createFailingRepository(): ConversationRepository {
   return new ConversationRepository({
@@ -58,7 +70,9 @@ async function createApp(
   repository?: ConversationRepository,
   outboundSender?: OutboundMessageSender | null,
 ): Promise<FastifyInstance> {
-  const app = await buildApp({ conversations: { repository, outboundSender } });
+  const app = await buildApp({
+    conversations: { repository, outboundSender, attachmentRepository: null },
+  });
   apps.push(app);
   return app;
 }
@@ -267,6 +281,92 @@ describe('Paterhaus live conversations API', () => {
     expect(calls[1]?.text).toContain('ORDER BY id ASC');
   });
 
+  it('returns safe attachment cards and hides extracted document text from message text', async () => {
+    const { repository } = createRepository([
+      [
+        {
+          id: 6,
+          chat_id: 'canonical-chat-id',
+          number: '77021464983',
+          username: 'Sultan',
+          ai_enabled: true,
+          ai_resumed_at: null,
+        },
+      ],
+      [
+        {
+          id: 23,
+          chat_id: 'canonical-chat-id',
+          username: 'Sultan',
+          message: 'Client sent a Word document. Extracted document content: <w:document>secret</w:document>',
+          time: '2026-09-22, 15:00:00.000',
+        },
+      ],
+    ]);
+    const attachmentRepository = createAttachmentRepository([
+      [
+        {
+          id: '91',
+          chat_id: 'canonical-chat-id',
+          history_id: '23',
+          sender_type: 'contact',
+          sender_name: 'Sultan',
+          number: '77021464983',
+          file_name: 'Letter of Intent.docx',
+          mime_type: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+          file_kind: 'word',
+          size_bytes: '42905',
+          storage_bucket: 'pater-media',
+          storage_key: 'private/document.docx',
+          caption: null,
+          summary: 'Letter of intent regarding a pilot implementation.',
+          created_at: new Date('2026-09-22T10:00:00.000Z'),
+        },
+      ],
+    ]);
+    const app = await buildApp({
+      conversations: { repository, outboundSender: null, attachmentRepository },
+    });
+    apps.push(app);
+    const token = await accessToken(app);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${token}` },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().messages[0]).toMatchObject({
+      id: 23,
+      text: '',
+      attachments: [
+        {
+          id: '91',
+          fileName: 'Letter of Intent.docx',
+          kind: 'word',
+          sizeBytes: 42905,
+          summary: 'Letter of intent regarding a pilot implementation.',
+        },
+      ],
+    });
+    expect(response.body).not.toContain('Extracted document content');
+    expect(response.body).not.toContain('storage_key');
+  });
+
+  it('maps legacy human:whatsapp messages to Ruslan', async () => {
+    const { repository } = createRepository([
+      [{ id: 6, chat_id: 'chat', number: '7702', username: 'Sultan', ai_enabled: false }],
+      [{ id: 24, chat_id: 'chat', username: 'human:whatsapp', message: 'Legacy reply', time: null }],
+    ]);
+    const app = await createApp(repository);
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/paterhaus/conversations/6/messages',
+      headers: { authorization: `Bearer ${await accessToken(app)}` },
+    });
+    expect(response.json().messages[0]).toMatchObject({ senderName: 'Ruslan', senderType: 'human' });
+  });
+
   it('disables AI without changing ai_resumed_at', async () => {
     const resumedAt = new Date('2026-08-28T18:00:00.000Z');
     const { repository, calls } = createRepository([
@@ -410,14 +510,14 @@ describe('Paterhaus live conversations API', () => {
     expect(supported.json()).toMatchObject({ manualMessages: true, attachments: false });
   });
 
-  it('sends a human takeover reply and stores it as human:<email>', async () => {
+  it('sends a human takeover reply and stores it as human:ruslan', async () => {
     const { repository, calls } = createRepository([
       [{ id: 6, chat_id: 'canonical-chat-id', number: '77021464983', username: 'Sultan', ai_enabled: false }],
       [
         {
           id: 25,
           chat_id: 'canonical-chat-id',
-          username: 'human:info@paterhaus.com',
+          username: 'human:ruslan',
           message: 'Hello from the manager',
           time: '2026-08-29, 10:00:00.000',
         },
@@ -438,7 +538,7 @@ describe('Paterhaus live conversations API', () => {
     expect(response.json().message).toMatchObject({
       id: 25,
       senderType: 'human',
-      senderName: 'info@paterhaus.com',
+      senderName: 'Ruslan',
       direction: 'outbound',
     });
     expect(outbound.sent).toEqual([
@@ -449,7 +549,7 @@ describe('Paterhaus live conversations API', () => {
       }),
     ]);
     expect(calls[1]?.text).toContain('INSERT INTO hostory_pater');
-    expect(calls[1]?.values?.[1]).toBe('human:info@paterhaus.com');
+    expect(calls[1]?.values?.[1]).toBe('human:ruslan');
   });
 
   it('rejects a manual reply while AI is still active', async () => {

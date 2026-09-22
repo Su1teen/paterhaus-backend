@@ -26,6 +26,9 @@ interface ConversationListRow extends QueryResultRow {
   latest_message: string | null;
   latest_message_time: string | null;
   latest_non_ai_username: string | null;
+  latest_attachment_id: string | null;
+  latest_attachment_file_name: string | null;
+  latest_attachment_caption: string | null;
 }
 
 interface ConversationRow extends QueryResultRow {
@@ -90,7 +93,10 @@ export class ConversationRepository {
           latest.id AS latest_message_id,
           latest.message AS latest_message,
           latest.time AS latest_message_time,
-          contact.username AS latest_non_ai_username
+          contact.username AS latest_non_ai_username,
+          latest_attachment.id AS latest_attachment_id,
+          latest_attachment.file_name AS latest_attachment_file_name,
+          latest_attachment.caption AS latest_attachment_caption
         FROM chats_pater c
         LEFT JOIN LATERAL (
           SELECT h.id, h.message, h.time
@@ -108,6 +114,13 @@ export class ConversationRepository {
           ORDER BY h.id DESC
           LIMIT 1
         ) contact ON TRUE
+        LEFT JOIN LATERAL (
+          SELECT a.id, a.file_name, a.caption
+          FROM pater_attachments a
+          WHERE a.history_id = latest.id
+          ORDER BY a.id ASC
+          LIMIT 1
+        ) latest_attachment ON TRUE
         WHERE (
           $1::text IS NULL
           OR COALESCE(c.chat_id, '') ILIKE $1 ESCAPE '\\'

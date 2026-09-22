@@ -13,7 +13,9 @@
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
+    "test:unit": "vitest run --config vitest.unit.config.ts",
     "test:watch": "vitest",
+    "chat-history:migrate": "node scripts/migrate-chat-history.mjs",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev",
     "prisma:deploy": "prisma migrate deploy",
@@ -23,6 +25,8 @@
     "seed": "tsx prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1137.0",
+    "@aws-sdk/s3-request-presigner": "^3.1137.0",
     "@fastify/cors": "10.0.1",
     "@fastify/swagger": "9.4.0",
     "@fastify/swagger-ui": "5.2.0",

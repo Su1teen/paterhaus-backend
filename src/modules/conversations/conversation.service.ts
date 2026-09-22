@@ -13,6 +13,12 @@ import {
   type MessageRow,
 } from './conversation.repository.js';
 import type { OutboundMessageSender } from './conversation.outbound.js';
+import {
+  AttachmentDataUnavailableError,
+  type AttachmentRepository,
+  type AttachmentRow,
+} from '../attachments/attachment.repository.js';
+import { toMessageAttachment } from '../attachments/attachment.service.js';
 
 const PREVIEW_LENGTH = 160;
 const HUMAN_USERNAME_PREFIX = 'human:';
@@ -29,6 +35,7 @@ export interface LiveMessage {
   text: string;
   timeRaw: string | null;
   sentAt: string | null;
+  attachments: ReturnType<typeof toMessageAttachment>[];
 }
 
 function clean(value: string | null): string | null {
@@ -52,6 +59,7 @@ export function senderTypeFromUsername(username: string | null): SenderType {
 
 function humanSenderName(username: string | null): string {
   const identity = (username ?? '').trim().slice(HUMAN_USERNAME_PREFIX.length).trim();
+  if (identity.toLowerCase() === 'ruslan' || identity.toLowerCase() === 'whatsapp') return 'Ruslan';
   return identity.length > 0 ? identity : 'Manager';
 }
 
@@ -84,6 +92,7 @@ export class ConversationService {
   constructor(
     private readonly repository = new ConversationRepository(),
     private readonly outboundSender: OutboundMessageSender | null = null,
+    private readonly attachmentRepository: AttachmentRepository | null = null,
   ) {}
 
   get manualRepliesSupported(): boolean {
@@ -95,7 +104,10 @@ export class ConversationService {
     try {
       return await operation();
     } catch (error) {
-      if (error instanceof ChatHistoryUnavailableError) {
+      if (
+        error instanceof ChatHistoryUnavailableError ||
+        error instanceof AttachmentDataUnavailableError
+      ) {
         throw serviceUnavailable('Live conversation data is temporarily unavailable.');
       }
       throw error;
@@ -120,7 +132,9 @@ export class ConversationService {
           clean(row.chat_id) ??
           `Conversation ${row.id}`,
         aiEnabled: row.ai_enabled !== false,
-        lastMessagePreview: clean(row.latest_message)?.slice(0, PREVIEW_LENGTH) ?? null,
+        lastMessagePreview: row.latest_attachment_id
+          ? (clean(row.latest_attachment_caption) ?? clean(row.latest_attachment_file_name))
+          : (clean(row.latest_message)?.slice(0, PREVIEW_LENGTH) ?? null),
         lastMessageId: row.latest_message_id,
         lastMessageTimeRaw: row.latest_message_time,
         lastMessageAt: parseAlmatyTime(row.latest_message_time),
@@ -142,7 +156,11 @@ export class ConversationService {
     return { conversation, chatId };
   }
 
-  private toLiveMessage(message: MessageRow, fallbackContactName: string): LiveMessage {
+  private toLiveMessage(
+    message: MessageRow,
+    fallbackContactName: string,
+    attachmentRows: AttachmentRow[] = [],
+  ): LiveMessage {
     const senderType = senderTypeFromUsername(message.username);
     const senderName =
       senderType === 'ai'
@@ -151,21 +169,40 @@ export class ConversationService {
           ? humanSenderName(message.username)
           : (clean(message.username) ?? fallbackContactName);
 
+    const attachments = attachmentRows.map(toMessageAttachment);
+    const text =
+      senderType === 'contact' && attachments.length > 0
+        ? (attachments.find((attachment) => attachment.caption)?.caption ?? '')
+        : (message.message ?? '');
+
     return {
       id: message.id,
       chatId: clean(message.chat_id),
       senderName,
       senderType,
       direction: senderType === 'contact' ? 'inbound' : 'outbound',
-      text: message.message ?? '',
+      text,
       timeRaw: message.time,
       sentAt: parseAlmatyTime(message.time),
+      attachments,
     };
   }
 
   async getMessages(id: number) {
     const { conversation, chatId } = await this.requireConversation(id);
     const messages = await this.guard(() => this.repository.listMessages(chatId));
+    const attachmentRows = this.attachmentRepository
+      ? await this.guard(() =>
+          this.attachmentRepository!.listByHistoryIds(messages.map((message) => message.id)),
+        )
+      : [];
+    const attachmentsByHistoryId = new Map<string, AttachmentRow[]>();
+    for (const attachment of attachmentRows) {
+      if (!attachment.history_id) continue;
+      const existing = attachmentsByHistoryId.get(attachment.history_id) ?? [];
+      existing.push(attachment);
+      attachmentsByHistoryId.set(attachment.history_id, existing);
+    }
     const fallbackContactName =
       clean(conversation.username) ?? clean(conversation.number) ?? chatId;
 
@@ -178,7 +215,9 @@ export class ConversationService {
         aiEnabled: conversation.ai_enabled !== false,
         aiResumedAt: asIso(conversation.ai_resumed_at),
       },
-      messages: messages.map((message) => this.toLiveMessage(message, fallbackContactName)),
+      messages: messages.map((message) =>
+        this.toLiveMessage(message, fallbackContactName, attachmentsByHistoryId.get(String(message.id))),
+      ),
     };
   }
 
@@ -240,7 +279,7 @@ export class ConversationService {
       const row = await this.guard(() =>
         this.repository.insertHumanMessage({
           chatId,
-          username: `${HUMAN_USERNAME_PREFIX}${input.authorizedEmail}`,
+          username: `${HUMAN_USERNAME_PREFIX}ruslan`,
           text: input.text,
           time: formatAlmatyTime(new Date()),
         }),
