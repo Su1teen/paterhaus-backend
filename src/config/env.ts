@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 const PATERHAUS_CRM_PRODUCTION_ORIGIN = 'https://prestige-crm-production.up.railway.app';
+const optionalString = z.string().trim().optional().or(z.literal('').transform(() => undefined));
 
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -22,6 +23,16 @@ const envSchema = z.object({
     .optional()
     .or(z.literal('').transform(() => undefined)),
   N8N_OUTBOUND_WEBHOOK_TOKEN: z.string().default(''),
+  ATTACHMENTS_S3_ENDPOINT: z
+    .string()
+    .trim()
+    .url('ATTACHMENTS_S3_ENDPOINT must be a valid URL')
+    .optional()
+    .or(z.literal('').transform(() => undefined)),
+  ATTACHMENTS_S3_REGION: optionalString,
+  ATTACHMENTS_S3_BUCKET: optionalString,
+  ATTACHMENTS_S3_ACCESS_KEY_ID: optionalString,
+  ATTACHMENTS_S3_SECRET_ACCESS_KEY: optionalString,
   // Optional override for the lead classification table in the chat-history database.
   // When unset, the table is discovered from its column signature.
   LEAD_CLASSIFICATIONS_TABLE: z.string().trim().default(''),
@@ -33,6 +44,7 @@ export type Env = z.infer<typeof envSchema> & {
   corsOrigins: string[];
   crmAllowedEmails: ReadonlySet<string>;
   manualRepliesEnabled: boolean;
+  attachmentsS3Configured: boolean;
 };
 
 function buildEnv(): Env {
@@ -65,11 +77,26 @@ function buildEnv(): Env {
     throw new Error('Invalid environment configuration:\nCRM_ALLOWED_EMAILS: at least one email is required');
   }
 
+  const s3Values = [
+    parsed.data.ATTACHMENTS_S3_ENDPOINT,
+    parsed.data.ATTACHMENTS_S3_REGION,
+    parsed.data.ATTACHMENTS_S3_BUCKET,
+    parsed.data.ATTACHMENTS_S3_ACCESS_KEY_ID,
+    parsed.data.ATTACHMENTS_S3_SECRET_ACCESS_KEY,
+  ];
+  const configuredS3Values = s3Values.filter(Boolean).length;
+  if (configuredS3Values > 0 && configuredS3Values < s3Values.length) {
+    throw new Error(
+      'Invalid environment configuration:\nATTACHMENTS_S3_*: all five S3 variables must be set together',
+    );
+  }
+
   return {
     ...parsed.data,
     corsOrigins,
     crmAllowedEmails,
     manualRepliesEnabled: Boolean(parsed.data.N8N_OUTBOUND_WEBHOOK_URL),
+    attachmentsS3Configured: configuredS3Values === s3Values.length,
   };
 }
 
