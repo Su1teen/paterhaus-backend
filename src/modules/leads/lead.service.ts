@@ -10,6 +10,8 @@ const leadInclude = {
   attribution: true,
   campaign: { select: { id: true, name: true, platform: true, direction: true } },
   assignedUser: { select: { id: true, name: true, email: true, role: true } },
+  projects: { select: { id: true, name: true, status: true,
+    contractors: { select: { contractor: { select: { id: true, name: true } } } } } },
 } satisfies Prisma.LeadInclude;
 
 function buildWhere(query: LeadListQuery): Prisma.LeadWhereInput {

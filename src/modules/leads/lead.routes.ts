@@ -56,7 +56,9 @@ export async function leadRoutes(app: FastifyInstance): Promise<void> {
       integrationStatus = 'unavailable';
     }
     const items = await prisma.lead.findMany({ where: { archivedAt: null }, orderBy: { createdAt: 'desc' }, take: 100,
-      include: { assignedUser: { select: { id: true, name: true, email: true, role: true } } } });
+      include: { assignedUser: { select: { id: true, name: true, email: true, role: true } },
+        projects: { select: { id: true, name: true, status: true,
+          contractors: { select: { contractor: { select: { id: true, name: true } } } } } } } });
     return { items, integrationStatus };
   });
   app.get(
