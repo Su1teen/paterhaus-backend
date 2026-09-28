@@ -3,14 +3,27 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import pg from 'pg';
 
-export const MIGRATION_ID = '20260922_001_attachments_escalations';
+export const CHAT_HISTORY_MIGRATION_IDS = [
+  '20260922_001_attachments_escalations',
+  '20260923_002_remove_waha_status_pollution',
+];
+/** Backward-compatible name for the original migration. */
+export const MIGRATION_ID = CHAT_HISTORY_MIGRATION_IDS[0];
 const ADVISORY_LOCK_NAME = 'paterhaus_chat_history_migrations';
-const migrationPath = join(
-  dirname(fileURLToPath(import.meta.url)),
-  '..',
-  'chat-history-migrations',
-  `${MIGRATION_ID}.sql`,
-);
+const migrationsDirectory = join(dirname(fileURLToPath(import.meta.url)), '..', 'chat-history-migrations');
+
+function migrationPath(id) {
+  return join(migrationsDirectory, `${id}.sql`);
+}
+
+export async function loadChatHistoryMigrations() {
+  return Promise.all(
+    CHAT_HISTORY_MIGRATION_IDS.map(async (id) => ({
+      id,
+      sql: await readFile(migrationPath(id), 'utf8'),
+    })),
+  );
+}
 
 /** Exported for a deterministic unit test of the once-only decision. */
 export function migrationAlreadyApplied(rows, migrationId = MIGRATION_ID) {
@@ -24,7 +37,7 @@ export async function migrateChatHistory(options = {}) {
   }
 
   const Pool = options.Pool ?? pg.Pool;
-  const sql = options.sql ?? (await readFile(migrationPath, 'utf8'));
+  const migrations = options.migrations ?? (await loadChatHistoryMigrations());
   const pool = new Pool({ connectionString, max: 1 });
   const client = await pool.connect();
 
@@ -38,19 +51,23 @@ export async function migrateChatHistory(options = {}) {
       )
     `);
 
-    const applied = await client.query(
-      'SELECT id FROM pater_system_migrations WHERE id = $1',
-      [MIGRATION_ID],
-    );
-    if (migrationAlreadyApplied(applied.rows)) {
-      await client.query('COMMIT');
-      return { id: MIGRATION_ID, applied: false };
-    }
+    const results = [];
+    for (const migration of migrations) {
+      const applied = await client.query(
+        'SELECT id FROM pater_system_migrations WHERE id = $1',
+        [migration.id],
+      );
+      if (migrationAlreadyApplied(applied.rows, migration.id)) {
+        results.push({ id: migration.id, applied: false });
+        continue;
+      }
 
-    await client.query(sql);
-    await client.query('INSERT INTO pater_system_migrations (id) VALUES ($1)', [MIGRATION_ID]);
+      await client.query(migration.sql);
+      await client.query('INSERT INTO pater_system_migrations (id) VALUES ($1)', [migration.id]);
+      results.push({ id: migration.id, applied: true });
+    }
     await client.query('COMMIT');
-    return { id: MIGRATION_ID, applied: true };
+    return { migrations: results };
   } catch (error) {
     try {
       await client.query('ROLLBACK');
@@ -69,9 +86,12 @@ const isEntrypoint =
 
 if (isEntrypoint) {
   migrateChatHistory()
-    .then(({ id, applied }) => {
+    .then(({ migrations }) => {
+      const applied = migrations.filter((migration) => migration.applied).map((migration) => migration.id);
       process.stdout.write(
-        applied ? `Applied chat-history migration ${id}.\n` : `Chat-history migration ${id} already applied.\n`,
+        applied.length > 0
+          ? `Applied chat-history migrations: ${applied.join(', ')}.\n`
+          : 'All chat-history migrations are already applied.\n',
       );
     })
     .catch((error) => {

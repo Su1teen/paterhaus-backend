@@ -193,9 +193,13 @@ GET   /api/paterhaus/lead-classifications
 `chats_pater` and `hostory_pater`. It is intentionally different from `DATABASE_URL`; Prisma continues to
 use only `DATABASE_URL`, and no migration is applied to the external tables.
 
-The access-token endpoint is a temporary bridge because CRM authentication is currently frontend-local.
-It issues a 15-minute feature-scoped JWT only for `CRM_ALLOWED_EMAILS`. Replace this endpoint with verified
-server-side sessions when CRM authentication moves to the backend.
+Paterhaus login verifies a server-side scrypt password hash (`PATERHAUS_ADMIN_PASSWORD_HASH` or
+`PATERHAUS_MARKETING_PASSWORD_HASH`) and returns an eight-hour role-bound session. Both hashes must be
+provisioned separately; if a hash is unset, that account fails closed. The conversations access-token endpoint
+requires the verified session and derives the email from its subject, not from the request body. It issues a
+15-minute feature-scoped JWT for the existing conversations, files, classification and calendar routes.
+Operational `/leads` and `/campaigns` routes require a Paterhaus session; `/integrations/*` requires ADMIN.
+Rotate the previously frontend-exposed Paterhaus passwords before provisioning the hashes.
 
 See [docs/live-conversations.md](docs/live-conversations.md) for the data contract, Railway variables,
 n8n requirements, verification commands, and deployment checklist.

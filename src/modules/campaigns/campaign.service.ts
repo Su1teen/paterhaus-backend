@@ -1,6 +1,6 @@
 import { Prisma, type Campaign } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { notFound } from '../../plugins/error-handler.js';
+import { conflict, notFound } from '../../plugins/error-handler.js';
 import { buildMeta, resolvePagination, type PaginatedMeta } from '../../utils/pagination.js';
 import type { CampaignListQuery, CreateCampaignInput, UpdateCampaignInput } from './campaign.schemas.js';
 
@@ -87,6 +87,9 @@ export async function updateCampaign(id: string, input: UpdateCampaignInput): Pr
 export async function deleteCampaign(id: string): Promise<void> {
   const existing = await prisma.campaign.findUnique({ where: { id }, select: { id: true } });
   if (!existing) throw notFound('Campaign not found');
+  if (await prisma.lead.count({ where: { campaignId: id } })) {
+    throw conflict('Archive a campaign with attributed leads instead');
+  }
 
   await prisma.campaign.delete({ where: { id } });
 }

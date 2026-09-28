@@ -58,6 +58,9 @@ export class AttachmentRepository {
                file_kind, size_bytes, storage_bucket, storage_key, caption, summary, created_at
         FROM pater_attachments
         WHERE chat_id = $1
+          AND NULLIF(BTRIM(chat_id), '') IS NOT NULL
+          AND LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'
+          AND LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'
         ORDER BY created_at ASC, id ASC
       `,
       [chatId],
@@ -74,6 +77,9 @@ export class AttachmentRepository {
                file_kind, size_bytes, storage_bucket, storage_key, caption, summary, created_at
         FROM pater_attachments
         WHERE history_id = ANY($1::bigint[])
+          AND NULLIF(BTRIM(chat_id), '') IS NOT NULL
+          AND LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'
+          AND LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'
         ORDER BY created_at ASC, id ASC
       `,
       [historyIds],
@@ -94,14 +100,17 @@ export class AttachmentRepository {
         SELECT id, chat_id, history_id, sender_type, sender_name, number, file_name, mime_type,
                file_kind, size_bytes, storage_bucket, storage_key, caption, summary, created_at
         FROM pater_attachments
-        WHERE (
-          $1::text IS NULL
-          OR file_name ILIKE $1 ESCAPE '\\'
-          OR COALESCE(sender_name, '') ILIKE $1 ESCAPE '\\'
-          OR COALESCE(number, '') ILIKE $1 ESCAPE '\\'
-          OR COALESCE(summary, '') ILIKE $1 ESCAPE '\\'
-          OR chat_id ILIKE $1 ESCAPE '\\'
-        )
+        WHERE NULLIF(BTRIM(chat_id), '') IS NOT NULL
+          AND LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'
+          AND LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'
+          AND (
+            $1::text IS NULL
+            OR file_name ILIKE $1 ESCAPE '\\'
+            OR COALESCE(sender_name, '') ILIKE $1 ESCAPE '\\'
+            OR COALESCE(number, '') ILIKE $1 ESCAPE '\\'
+            OR COALESCE(summary, '') ILIKE $1 ESCAPE '\\'
+            OR chat_id ILIKE $1 ESCAPE '\\'
+          )
           AND (
             $2::text IS NULL
             OR file_kind = $2

@@ -121,12 +121,14 @@ export class ConversationRepository {
           ORDER BY a.id ASC
           LIMIT 1
         ) latest_attachment ON TRUE
-        WHERE (
-          $1::text IS NULL
-          OR COALESCE(c.chat_id, '') ILIKE $1 ESCAPE '\\'
-          OR COALESCE(c.number, '') ILIKE $1 ESCAPE '\\'
-          OR COALESCE(c.username, '') ILIKE $1 ESCAPE '\\'
-        )
+        WHERE NULLIF(BTRIM(c.chat_id), '') IS NOT NULL
+          AND NULLIF(BTRIM(c.number), '') IS NOT NULL
+          AND (
+            $1::text IS NULL
+            OR COALESCE(c.chat_id, '') ILIKE $1 ESCAPE '\\'
+            OR COALESCE(c.number, '') ILIKE $1 ESCAPE '\\'
+            OR COALESCE(c.username, '') ILIKE $1 ESCAPE '\\'
+          )
         ORDER BY latest.id DESC NULLS LAST, c.id DESC
         LIMIT $2
         OFFSET $3

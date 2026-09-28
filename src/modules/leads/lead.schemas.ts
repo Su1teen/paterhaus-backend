@@ -14,6 +14,7 @@ export const leadListQuerySchema = z.object({
   search: z.string().trim().min(1).max(120).optional(),
   page: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().positive().optional(),
+  archived: z.enum(['true', 'false']).default('false'),
 });
 
 export const createLeadSchema = z.object({
@@ -35,6 +36,14 @@ export const createLeadSchema = z.object({
   firstResponseDueAt: z.coerce.date().optional(),
   followUpDueAt: z.coerce.date().optional(),
   lostReason: z.string().trim().max(500).optional(),
+  priority: z.enum(['Low', 'Medium', 'High', 'Urgent']).optional(),
+  nextActionType: z.enum(['FOLLOW_UP', 'CALL', 'SEND_PROPOSAL', 'NEGOTIATE', 'SITE_VISIT', 'WAITING_CLIENT', 'WAITING_PAYMENT', 'PAYMENT_RECEIVED', 'CREATE_PROJECT', 'OTHER']).optional(),
+  nextActionText: z.string().trim().max(500).optional(),
+  nextActionAt: z.coerce.date().optional(),
+  note: z.string().trim().max(5000).optional(),
+  quotedAmount: z.coerce.number().finite().min(0).max(999999999999).optional(),
+  agreedAmount: z.coerce.number().finite().min(0).max(999999999999).optional(),
+  currency: z.string().regex(/^[A-Z]{3}$/).default('AED'),
 });
 
 export const updateLeadSchema = createLeadSchema
@@ -43,6 +52,11 @@ export const updateLeadSchema = createLeadSchema
     campaignId: uuid.nullable().optional(),
     assignedUserId: uuid.nullable().optional(),
     lostReason: z.string().trim().max(500).nullable().optional(),
+    nextActionText: z.string().trim().max(500).nullable().optional(),
+    nextActionAt: z.coerce.date().nullable().optional(),
+    note: z.string().trim().max(5000).nullable().optional(),
+    quotedAmount: z.coerce.number().finite().min(0).max(999999999999).nullable().optional(),
+    agreedAmount: z.coerce.number().finite().min(0).max(999999999999).nullable().optional(),
   })
   .refine((value) => Object.keys(value).length > 0, {
     message: 'At least one field must be provided',

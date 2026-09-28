@@ -7,6 +7,7 @@ import {
   calendarEventIdParamSchema,
   calendarListQuerySchema,
   createCalendarEventSchema,
+  updateCalendarEventSchema,
 } from './calendar.schemas.js';
 
 const calendarTag = { tags: ['paterhaus-calendar'] } as const;
@@ -75,6 +76,34 @@ export async function calendarRoutes(app: FastifyInstance): Promise<void> {
         data: { ...input, createdBy: request.conversationAccessEmail ?? '' },
       });
       return reply.status(201).send(event);
+    },
+  );
+
+  app.patch(
+    '/api/paterhaus/calendar/events/:eventId',
+    {
+      preHandler: requireConversationAccess,
+      schema: {
+        ...calendarTag,
+        summary: 'Update a calendar event',
+        body: { type: 'object', additionalProperties: true },
+      },
+    },
+    async (request) => {
+      const { eventId } = calendarEventIdParamSchema.parse(request.params);
+      const input = updateCalendarEventSchema.parse(request.body);
+      const existing = await prisma.calendarEvent.findUnique({ where: { id: eventId } });
+      if (!existing) throw notFound('Calendar event not found');
+      createCalendarEventSchema.parse({
+        title: existing.title,
+        description: existing.description,
+        eventDate: existing.eventDate,
+        startTime: existing.startTime,
+        endTime: existing.endTime,
+        kind: existing.kind,
+        ...input,
+      });
+      return prisma.calendarEvent.update({ where: { id: eventId }, data: input });
     },
   );
 

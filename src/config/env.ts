@@ -10,6 +10,8 @@ const envSchema = z.object({
   CHAT_HISTORY_DATABASE_URL: z.string().min(1, 'CHAT_HISTORY_DATABASE_URL is required'),
   CRM_JWT_SECRET: z.string().min(32, 'CRM_JWT_SECRET must be at least 32 characters'),
   CRM_ALLOWED_EMAILS: z.string().min(1, 'CRM_ALLOWED_EMAILS is required'),
+  PATERHAUS_ADMIN_PASSWORD_HASH: optionalString,
+  PATERHAUS_MARKETING_PASSWORD_HASH: optionalString,
   WEBHOOK_SECRET: z.string().min(1, 'WEBHOOK_SECRET is required'),
   INTERNAL_DASHBOARD_SECRET: z.string().min(1, 'INTERNAL_DASHBOARD_SECRET is required'),
   // Optional: when unset/empty, the legacy GET connector adapter rejects every request with 401.

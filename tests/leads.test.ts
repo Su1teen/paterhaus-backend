@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
-import { closeTestApp, getTestApp, resetDatabase } from './helpers/test-app.js';
+import { closeTestApp, getTestApp, getAuthenticatedTestApp, resetDatabase } from './helpers/test-app.js';
 
 describe('Leads API', () => {
   beforeAll(async () => {
@@ -16,7 +16,7 @@ describe('Leads API', () => {
   });
 
   it('creates, reads, updates and deletes a lead', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     const created = await app.inject({
       method: 'POST',
@@ -60,7 +60,7 @@ describe('Leads API', () => {
   });
 
   it('validates lead input', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     const badEmail = await app.inject({
       method: 'POST',
@@ -88,7 +88,7 @@ describe('Leads API', () => {
   });
 
   it('filters and paginates the lead list', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     await prisma.lead.createMany({
       data: [
@@ -120,7 +120,7 @@ describe('Leads API', () => {
   });
 
   it('caps the page size at the safe maximum', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     const response = await app.inject({ method: 'GET', url: '/leads?limit=5000' });
     expect(response.json().meta.limit).toBe(100);
   });

@@ -30,7 +30,7 @@ export const calendarListQuerySchema = z
     path: ['to'],
   });
 
-export const createCalendarEventSchema = z
+const calendarEventFields = z
   .object({
     title: z.string().trim().min(1, 'Title is required').max(200),
     description: z
@@ -46,11 +46,18 @@ export const createCalendarEventSchema = z
     startTime: optionalTime,
     endTime: optionalTime,
     kind: z.enum(CALENDAR_EVENT_KINDS).default('operation'),
-  })
+  });
+
+export const createCalendarEventSchema = calendarEventFields
   .refine((event) => !event.startTime || !event.endTime || event.startTime <= event.endTime, {
     message: 'End time must not be before start time',
     path: ['endTime'],
   });
+
+export const updateCalendarEventSchema = calendarEventFields.partial().refine(
+  (event) => !event.startTime || !event.endTime || event.startTime <= event.endTime,
+  { message: 'End time must not be before start time', path: ['endTime'] },
+);
 
 export const calendarEventIdParamSchema = z.object({
   eventId: z.string().uuid(),

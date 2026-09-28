@@ -66,11 +66,10 @@ const baseAttachment = {
 const apps: FastifyInstance[] = [];
 
 async function token(app: FastifyInstance): Promise<string> {
-  const response = await app.inject({
-    method: 'POST',
-    url: '/api/paterhaus/conversations/access-token',
-    payload: { email: 'r_tszi@paterhaus.com' },
-  });
+  const login = await app.inject({ method: 'POST', url: '/api/paterhaus/auth/login',
+    payload: { email: 'r_tszi@paterhaus.com', password: 'test-password' } });
+  const response = await app.inject({ method: 'POST', url: '/api/paterhaus/conversations/access-token',
+    headers: { authorization: `Bearer ${login.json().accessToken}` } });
   return response.json<{ accessToken: string }>().accessToken;
 }
 
@@ -124,6 +123,9 @@ describe('Paterhaus attachment API', () => {
       sizeBytes: 42905,
     });
     expect(attachments.calls[0]?.values).toEqual(['canonical-chat']);
+    expect(attachments.calls[0]?.text).toContain("NULLIF(BTRIM(chat_id), '') IS NOT NULL");
+    expect(attachments.calls[0]?.text).toContain("LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'");
+    expect(attachments.calls[0]?.text).toContain("LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'");
     expect(response.body).not.toContain('storage_key');
     expect(response.body).not.toContain('extracted_text');
   });
@@ -141,7 +143,24 @@ describe('Paterhaus attachment API', () => {
     expect(response.json()).toMatchObject({ nextCursor: '11' });
     expect(response.json().items).toHaveLength(1);
     expect(attachments.calls[0]?.text).toContain('ORDER BY created_at DESC, id DESC');
+    expect(attachments.calls[0]?.text).toContain("NULLIF(BTRIM(chat_id), '') IS NOT NULL");
+    expect(attachments.calls[0]?.text).toContain("LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'");
+    expect(attachments.calls[0]?.text).toContain("LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'");
     expect(attachments.calls[0]?.values).toEqual(['%Letter%', 'word', 2, 10]);
+  });
+
+  it('excludes status artifacts and blank chat IDs from every attachment list query', async () => {
+    const attachments = attachmentRepository([[], [], []]);
+
+    await attachments.repository.listByChatId('canonical-chat');
+    await attachments.repository.listByHistoryIds([24]);
+    await attachments.repository.listFiles({ limit: 50, offset: 0 });
+
+    for (const call of attachments.calls) {
+      expect(call.text).toContain("NULLIF(BTRIM(chat_id), '') IS NOT NULL");
+      expect(call.text).toContain("LOWER(COALESCE(waha_message_id, '')) NOT LIKE '%status@broadcast%'");
+      expect(call.text).toContain("LOWER(COALESCE(file_name, '')) NOT LIKE '%status@broadcast%'");
+    }
   });
 
   it('requires live Paterhaus authorization', async () => {

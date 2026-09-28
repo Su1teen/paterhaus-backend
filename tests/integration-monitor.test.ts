@@ -5,6 +5,7 @@ import {
   TEST_WEBHOOK_SECRET,
   closeTestApp,
   getTestApp,
+  getAuthenticatedTestApp,
   resetDatabase,
   seedServiceMappings,
   webhookHeaders,
@@ -38,7 +39,7 @@ describe('Integration review API', () => {
   });
 
   it('does not claim external services are connected', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     const response = await app.inject({ method: 'GET', url: '/integrations/health' });
 
     expect(response.statusCode).toBe(200);
@@ -53,7 +54,7 @@ describe('Integration review API', () => {
   });
 
   it('reports connector activity only after real events arrive', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     await postWebhook({ name: 'Ivan Ivanov', service: 'Snagging' });
 
     const body = (await app.inject({ method: 'GET', url: '/integrations/health' })).json();
@@ -63,7 +64,7 @@ describe('Integration review API', () => {
   });
 
   it('lists webhook events newest first and never exposes stored headers', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     await postWebhook({ name: 'First Lead', service: 'Snagging', lead_id: 'ext-1' });
     await postWebhook({ name: 'Second Lead', service: 'Staging', lead_id: 'ext-2' });
 
@@ -80,7 +81,7 @@ describe('Integration review API', () => {
   });
 
   it('filters webhook events by status', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     await postWebhook({ name: 'Mapped Lead', service: 'Snagging' });
     await postWebhook({ name: 'Review Lead', service: 'Buying property' });
 
@@ -91,7 +92,7 @@ describe('Integration review API', () => {
   });
 
   it('returns the stored raw payload on the event detail endpoint', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
     const payload = { name: 'Detail Lead', service: 'Snagging', extra_field: 'kept' };
     const { eventId } = await postWebhook(payload);
 
@@ -102,7 +103,7 @@ describe('Integration review API', () => {
   });
 
   it('supports integration mapping CRUD', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     const created = await app.inject({
       method: 'POST',

@@ -25,7 +25,7 @@ Set these on the **paterhaus-backend Railway service**:
 | --- | --- |
 | `DATABASE_URL` | Existing Prisma-managed Paterhaus application database. Do not change it for this feature. |
 | `CHAT_HISTORY_DATABASE_URL` | Separate PostgreSQL database that contains `chats_pater` and `hostory_pater`. |
-| `CRM_JWT_SECRET` | At least 32 random characters, used only for short-lived conversation JWTs. |
+| `CRM_JWT_SECRET` | At least 32 random characters, used for role-bound CRM sessions and short-lived conversation JWTs. |
 | `CRM_ALLOWED_EMAILS` | Comma-separated normalized allowlist, currently `info@paterhaus.com,r_tszi@paterhaus.com`. |
 | `CORS_ORIGIN` | Local and any additional explicit CRM origins; no wildcard production origins. |
 | `N8N_OUTBOUND_WEBHOOK_URL` | Optional. Protected n8n webhook that relays human takeover replies to WAHA. Manual replies stay disabled while it is unset. |
@@ -34,9 +34,11 @@ Set these on the **paterhaus-backend Railway service**:
 
 No secrets are committed. Local implementation did not apply Railway variables or deploy either service.
 
-The access-token endpoint is a temporary bridge: the CRM currently authenticates locally in the browser,
-so the backend normalizes the submitted email, checks the allowlist, and returns a feature-scoped 15-minute
-JWT. It must be replaced by verified server-side authentication when that becomes available.
+The access-token endpoint now requires a server-issued Paterhaus session. The backend derives the email
+from the verified session, checks the allowlist, and returns a feature-scoped 15-minute JWT. The login
+endpoint verifies server-side scrypt password hashes for the ADMIN and MARKETING accounts. Provision
+`PATERHAUS_ADMIN_PASSWORD_HASH` and `PATERHAUS_MARKETING_PASSWORD_HASH` separately; do not reuse the
+formerly frontend-exposed passwords.
 
 ## n8n data contract
 
@@ -245,7 +247,7 @@ delivery still creates no history row.
 3. Confirm `CORS_ORIGIN` retains required local origins and any additional explicit CRM origin.
 4. Deploy the backend and check `/health`.
 5. Request a token with an allowed email, then verify list, history, disable, and enable routes.
-6. Confirm a non-allowlisted email returns `403` and missing/invalid bearer tokens return `401`.
+6. Confirm a login with unknown email returns `401`, the access-token endpoint rejects requests without a verified session, and missing/invalid bearer tokens return `401`.
 
 ### Frontend service
 

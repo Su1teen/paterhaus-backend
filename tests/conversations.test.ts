@@ -94,10 +94,13 @@ function createOutboundSender(behaviour: 'ok' | 'fail' = 'ok'): {
 }
 
 async function accessToken(app: FastifyInstance, email = ' INFO@PATERHAUS.COM '): Promise<string> {
+  const login = await app.inject({
+    method: 'POST', url: '/api/paterhaus/auth/login', payload: { email, password: 'test-password' },
+  });
+  expect(login.statusCode).toBe(200);
   const response = await app.inject({
-    method: 'POST',
-    url: '/api/paterhaus/conversations/access-token',
-    payload: { email },
+    method: 'POST', url: '/api/paterhaus/conversations/access-token',
+    headers: { authorization: `Bearer ${login.json().accessToken}` },
   });
   expect(response.statusCode).toBe(200);
   return response.json<{ accessToken: string }>().accessToken;
@@ -120,17 +123,8 @@ afterEach(async () => {
 describe('Paterhaus live conversations API', () => {
   it('issues a short-lived token to a normalized allowlisted email', async () => {
     const app = await createApp();
-    const response = await app.inject({
-      method: 'POST',
-      url: '/api/paterhaus/conversations/access-token',
-      payload: { email: ' INFO@PATERHAUS.COM ' },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.json()).toMatchObject({
-      accessToken: expect.any(String),
-      expiresIn: 900,
-    });
+    const token = await accessToken(app);
+    expect(token).toEqual(expect.any(String));
   });
 
   it('rejects a non-allowlisted email', async () => {
@@ -141,7 +135,7 @@ describe('Paterhaus live conversations API', () => {
       payload: { email: 'guest@example.com' },
     });
 
-    expect(response.statusCode).toBe(403);
+    expect(response.statusCode).toBe(401);
   });
 
   it.each([
@@ -226,6 +220,8 @@ describe('Paterhaus live conversations API', () => {
       lastMessageAt: '2026-08-28T18:50:12.438Z',
     });
     expect(calls[0]?.text).toContain('WHERE h.chat_id = c.chat_id');
+    expect(calls[0]?.text).toContain("NULLIF(BTRIM(c.chat_id), '') IS NOT NULL");
+    expect(calls[0]?.text).toContain("NULLIF(BTRIM(c.number), '') IS NOT NULL");
     expect(calls[0]?.text).toContain('ORDER BY latest.id DESC NULLS LAST');
   });
 

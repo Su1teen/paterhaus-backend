@@ -1,4 +1,5 @@
 import type { FastifyInstance } from 'fastify';
+import { requirePaterhausAdmin } from '../../plugins/paterhaus-auth.js';
 import { z } from 'zod';
 import {
   createMapping,
@@ -25,6 +26,7 @@ const mappingListQuerySchema = z.object({
 });
 
 export async function integrationRoutes(app: FastifyInstance): Promise<void> {
+  app.addHook('preHandler', requirePaterhausAdmin);
   app.get(
     '/integrations/health',
     {

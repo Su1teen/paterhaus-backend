@@ -1,6 +1,6 @@
 import { MappingStatus, Prisma } from '@prisma/client';
 import { prisma } from '../../lib/prisma.js';
-import { notFound } from '../../plugins/error-handler.js';
+import { conflict, notFound } from '../../plugins/error-handler.js';
 import { normalizeEmail } from '../../utils/normalize-email.js';
 import { normalizePhone } from '../../utils/normalize-phone.js';
 import { buildMeta, resolvePagination, type PaginatedMeta } from '../../utils/pagination.js';
@@ -13,7 +13,7 @@ const leadInclude = {
 } satisfies Prisma.LeadInclude;
 
 function buildWhere(query: LeadListQuery): Prisma.LeadWhereInput {
-  const where: Prisma.LeadWhereInput = {};
+  const where: Prisma.LeadWhereInput = { archivedAt: query.archived === 'true' ? { not: null } : null };
 
   if (query.direction) where.direction = query.direction;
   if (query.stage) where.stage = query.stage;
@@ -90,6 +90,14 @@ export async function createLead(input: CreateLeadInput) {
       firstResponseDueAt: input.firstResponseDueAt ?? null,
       followUpDueAt: input.followUpDueAt ?? null,
       lostReason: input.lostReason ?? null,
+      priority: input.priority ?? null,
+      nextActionType: input.nextActionType ?? null,
+      nextActionText: input.nextActionText ?? null,
+      nextActionAt: input.nextActionAt ?? null,
+      note: input.note ?? null,
+      quotedAmount: input.quotedAmount == null ? null : new Prisma.Decimal(input.quotedAmount),
+      agreedAmount: input.agreedAmount == null ? null : new Prisma.Decimal(input.agreedAmount),
+      currency: input.currency,
       events: {
         create: [{ type: 'LEAD_CREATED', description: 'Lead created via API', metadata: { source: input.source } }],
       },
@@ -132,6 +140,14 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
   if ('firstResponseDueAt' in input) data.firstResponseDueAt = input.firstResponseDueAt ?? null;
   if ('followUpDueAt' in input) data.followUpDueAt = input.followUpDueAt ?? null;
   if ('lostReason' in input) data.lostReason = input.lostReason ?? null;
+  if ('priority' in input) data.priority = input.priority ?? null;
+  if ('nextActionType' in input) data.nextActionType = input.nextActionType ?? null;
+  if ('nextActionText' in input) data.nextActionText = input.nextActionText ?? null;
+  if ('nextActionAt' in input) data.nextActionAt = input.nextActionAt ?? null;
+  if ('note' in input) data.note = input.note ?? null;
+  if ('quotedAmount' in input) data.quotedAmount = input.quotedAmount == null ? null : new Prisma.Decimal(input.quotedAmount);
+  if ('agreedAmount' in input) data.agreedAmount = input.agreedAmount == null ? null : new Prisma.Decimal(input.agreedAmount);
+  if (input.currency) data.currency = input.currency;
 
   const events: Prisma.LeadEventCreateWithoutLeadInput[] = [];
   if (input.stage && input.stage !== existing.stage) {
@@ -156,6 +172,13 @@ export async function updateLead(id: string, input: UpdateLeadInput) {
 export async function deleteLead(id: string): Promise<void> {
   const existing = await prisma.lead.findUnique({ where: { id }, select: { id: true } });
   if (!existing) throw notFound('Lead not found');
+  const [projects, properties, webhookEvents, attribution] = await Promise.all([
+    prisma.serviceProject.count({ where: { OR: [{ ownerLeadId: id }, { sourceOpportunityId: id }] } }),
+    prisma.property.count({ where: { ownerLeadId: id } }),
+    prisma.webhookEvent.count({ where: { leadId: id } }),
+    prisma.leadAttribution.count({ where: { leadId: id } }),
+  ]);
+  if (projects || properties || webhookEvents || attribution) throw conflict('Archive a lead with business history instead');
 
   await prisma.lead.delete({ where: { id } });
 }

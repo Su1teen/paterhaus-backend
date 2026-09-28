@@ -78,6 +78,29 @@ enum WebhookEventStatus {
   FAILED
 }
 
+enum ProjectStatus {
+  DRAFT
+  CONFIRMED
+  IN_PROGRESS
+  ON_HOLD
+  COMPLETED
+  CANCELLED
+}
+
+enum ProjectPaymentType {
+  PREPAYMENT
+  PARTIAL
+  FINAL
+  REFUND
+  OTHER
+}
+
+enum ProjectPaymentStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
 model User {
   id        String   @id @default(uuid()) @db.Uuid
   email     String   @unique
@@ -96,6 +119,9 @@ model Campaign {
   direction CampaignDirection
   status    CampaignStatus
   spendUsd  Decimal           @default(0) @db.Decimal(12, 2)
+  spendAmount Decimal?         @db.Decimal(12, 2)
+  currency  String?
+  archivedAt DateTime?
   startsAt  DateTime?
   endsAt    DateTime?
   notes     String?
@@ -113,6 +139,16 @@ model Lead {
   id String @id @default(uuid()) @db.Uuid
 
   externalLeadId  String?
+  externalChatId  String? @unique
+  archivedAt      DateTime?
+  priority        String?
+  nextActionType  String?
+  nextActionText  String?
+  nextActionAt    DateTime?
+  note            String?
+  quotedAmount    Decimal? @db.Decimal(14, 2)
+  agreedAmount    Decimal? @db.Decimal(14, 2)
+  currency        String   @default("AED")
   name            String?
   phone           String?
   normalizedPhone String?
@@ -148,6 +184,9 @@ model Lead {
   attribution   LeadAttribution?
   events        LeadEvent[]
   webhookEvents WebhookEvent[]
+  properties Property[]
+  projects ServiceProject[] @relation("ProjectOwnerLead")
+  sourceProjects ServiceProject[] @relation("ProjectSourceOpportunity")
 
   @@unique([source, externalLeadId], name: "source_externalLeadId")
   @@index([externalLeadId])
@@ -159,6 +198,7 @@ model Lead {
   @@index([source])
   @@index([campaignId])
   @@index([mappingStatus])
+  @@index([archivedAt])
 }
 
 model LeadAttribution {
@@ -265,4 +305,183 @@ model CalendarEvent {
 
   @@index([eventDate])
   @@index([createdBy])
+}
+
+model Property {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  address      String?
+  area         String?
+  type         String?
+  unit         String?
+  bedrooms     Int?
+  bathrooms    Int?
+  ownerLeadId  String?  @db.Uuid
+  ownerLead    Lead?    @relation(fields: [ownerLeadId], references: [id], onDelete: SetNull)
+  status       String   @default("ACTIVE")
+  notes        String?
+  archivedAt   DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  projects     ServiceProject[]
+  stays        Stay[]
+  documents    InternalDocument[]
+
+  @@index([ownerLeadId])
+  @@index([archivedAt])
+}
+
+model ServiceProject {
+  id                     String        @id @default(uuid()) @db.Uuid
+  propertyId             String?       @db.Uuid
+  property               Property?     @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  ownerLeadId            String?       @db.Uuid
+  ownerLead              Lead?         @relation("ProjectOwnerLead", fields: [ownerLeadId], references: [id], onDelete: SetNull)
+  sourceOpportunityId    String?       @db.Uuid
+  sourceOpportunity      Lead?         @relation("ProjectSourceOpportunity", fields: [sourceOpportunityId], references: [id], onDelete: SetNull)
+  name                   String
+  serviceDirections      String[]      @default([])
+  status                 ProjectStatus @default(DRAFT)
+  quotedAmount           Decimal?      @db.Decimal(14, 2)
+  agreedAmount           Decimal?      @db.Decimal(14, 2)
+  currency               String        @default("AED")
+  startDate              DateTime?
+  expectedCompletionDate DateTime?
+  completedAt            DateTime?
+  confirmedAt            DateTime?
+  comment                String?
+  archivedAt             DateTime?
+  createdAt              DateTime      @default(now())
+  updatedAt              DateTime      @updatedAt
+  milestones             ProjectMilestone[]
+  payments               ProjectPayment[]
+  contractors            ProjectContractorAssignment[]
+  documents              InternalDocument[]
+
+  @@index([propertyId])
+  @@index([ownerLeadId])
+  @@index([sourceOpportunityId])
+  @@index([status, archivedAt])
+}
+
+model ProjectMilestone {
+  id          String         @id @default(uuid()) @db.Uuid
+  projectId   String         @db.Uuid
+  project     ServiceProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  title       String
+  sortOrder   Int
+  completedAt DateTime?
+  comment     String?
+  responsible String?
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+
+  @@index([projectId, sortOrder])
+}
+
+model ProjectPayment {
+  id        String               @id @default(uuid()) @db.Uuid
+  projectId String               @db.Uuid
+  project   ServiceProject       @relation(fields: [projectId], references: [id], onDelete: Restrict)
+  amount    Decimal              @db.Decimal(14, 2)
+  currency  String               @default("AED")
+  type      ProjectPaymentType
+  status    ProjectPaymentStatus @default(PENDING)
+  paidAt    DateTime?
+  note      String?
+  createdAt DateTime             @default(now())
+  updatedAt DateTime             @updatedAt
+
+  @@index([projectId, status])
+  @@index([paidAt])
+}
+
+model Contractor {
+  id           String   @id @default(uuid()) @db.Uuid
+  name         String
+  contactPerson String?
+  phone        String?
+  email        String?
+  notes        String?
+  active       Boolean  @default(true)
+  serviceTypes String[] @default([])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  assignments  ProjectContractorAssignment[]
+  documents    InternalDocument[]
+}
+
+model ProjectContractorAssignment {
+  id           String         @id @default(uuid()) @db.Uuid
+  projectId    String         @db.Uuid
+  project      ServiceProject @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  contractorId String         @db.Uuid
+  contractor   Contractor     @relation(fields: [contractorId], references: [id], onDelete: Restrict)
+  scope        String?
+  amount       Decimal?       @db.Decimal(14, 2)
+  currency     String         @default("AED")
+  status       String?
+  assignedAt   DateTime       @default(now())
+  completedAt  DateTime?
+  note         String?
+
+  @@unique([projectId, contractorId])
+  @@index([contractorId])
+}
+
+model Guest {
+  id          String   @id @default(uuid()) @db.Uuid
+  name        String
+  phone       String?
+  email       String?
+  nationality String?
+  notes       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  stays       Stay[]
+}
+
+model Stay {
+  id            String   @id @default(uuid()) @db.Uuid
+  propertyId    String   @db.Uuid
+  property      Property @relation(fields: [propertyId], references: [id], onDelete: Restrict)
+  guestId       String   @db.Uuid
+  guest         Guest    @relation(fields: [guestId], references: [id], onDelete: Restrict)
+  source        String?
+  checkIn       DateTime
+  checkOut      DateTime
+  guestCount    Int      @default(1)
+  bookingValue  Decimal? @db.Decimal(14, 2)
+  currency      String   @default("AED")
+  paymentStatus String   @default("UNPAID")
+  status        String   @default("BOOKED")
+  notes         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([propertyId, checkIn])
+  @@index([guestId])
+  @@index([status, checkIn])
+}
+
+model InternalDocument {
+  id               String          @id @default(uuid()) @db.Uuid
+  title            String
+  originalFileName String
+  mimeType         String
+  sizeBytes        Int
+  storageKey       String          @unique
+  category         String
+  description      String?
+  uploadedBy       String
+  propertyId       String?         @db.Uuid
+  property         Property?       @relation(fields: [propertyId], references: [id], onDelete: SetNull)
+  projectId        String?         @db.Uuid
+  project          ServiceProject? @relation(fields: [projectId], references: [id], onDelete: SetNull)
+  contractorId     String?         @db.Uuid
+  contractor       Contractor?     @relation(fields: [contractorId], references: [id], onDelete: SetNull)
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+
+  @@index([category, createdAt])
 }

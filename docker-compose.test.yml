@@ -1,0 +1,14 @@
+services:
+  postgres-test:
+    image: postgres:16.4
+    environment:
+      POSTGRES_USER: paterhaus_test
+      POSTGRES_PASSWORD: ${PATERHAUS_TEST_POSTGRES_PASSWORD:?Set a local disposable test database password}
+      POSTGRES_DB: paterhaus_test
+    ports:
+      - "127.0.0.1:54329:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U paterhaus_test -d paterhaus_test"]
+      interval: 5s
+      timeout: 3s
+      retries: 10

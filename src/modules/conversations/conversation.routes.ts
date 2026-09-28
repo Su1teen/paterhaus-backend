@@ -6,7 +6,6 @@ import {
 import { ConversationRepository } from './conversation.repository.js';
 import {
   MAX_MANUAL_MESSAGE_LENGTH,
-  accessTokenRequestSchema,
   conversationIdParamSchema,
   conversationListQuerySchema,
   sendConversationMessageSchema,
@@ -19,6 +18,7 @@ import {
 import { ConversationService } from './conversation.service.js';
 import { randomUUID } from 'node:crypto';
 import { AttachmentRepository } from '../attachments/attachment.repository.js';
+import { requirePaterhausAccess } from '../../plugins/paterhaus-auth.js';
 
 export interface ConversationRouteOptions {
   repository?: ConversationRepository;
@@ -42,22 +42,16 @@ export async function conversationRoutes(
       : options.attachmentRepository;
   const service = new ConversationService(options.repository, outboundSender, attachmentRepository);
 
-  // Temporary bridge while CRM login is frontend-local; replace with verified server sessions.
   app.post(
     '/api/paterhaus/conversations/access-token',
     {
+      preHandler: requirePaterhausAccess,
       schema: {
         ...conversationTag,
-        summary: 'Issue a short-lived live-conversations access token',
-        body: {
-          type: 'object',
-          required: ['email'],
-          additionalProperties: false,
-          properties: { email: { type: 'string', minLength: 1 } },
-        },
+        summary: 'Issue a short-lived live-conversations access token for the authenticated Paterhaus user',
       },
     },
-    async (request) => issueConversationAccessToken(accessTokenRequestSchema.parse(request.body).email),
+    async (request) => issueConversationAccessToken(request.paterhausUser!.email),
   );
 
   app.get(

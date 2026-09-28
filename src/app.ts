@@ -14,15 +14,19 @@ import {
 import { healthRoutes } from './modules/health/health.routes.js';
 import { integrationRoutes } from './modules/integrations/integration.routes.js';
 import { internalMonitorRoutes } from './modules/internal/monitor.routes.js';
+import { internalDocumentRoutes } from './modules/internal-documents/internal-document.routes.js';
 import {
   leadClassificationRoutes,
   type LeadClassificationRouteOptions,
 } from './modules/lead-classifications/lead-classification.routes.js';
 import { leadRoutes } from './modules/leads/lead.routes.js';
+import { operationsRoutes } from './modules/operations/operations.routes.js';
+import { analyticsRoutes } from './modules/operations/operations.analytics.js';
 import { webhookRoutes } from './modules/webhooks/webhook.routes.js';
 import { registerCors } from './plugins/cors.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerSwagger } from './plugins/swagger.js';
+import { paterhausAuthRoutes } from './plugins/paterhaus-auth.js';
 
 const REDACTED_QUERY_PARAMS = new Set(['token', 'secret', 'access_token', 'key']);
 
@@ -78,16 +82,20 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   registerErrorHandler(app);
 
   await registerCors(app);
-  await registerSwagger(app);
+  if (env.NODE_ENV !== 'production') await registerSwagger(app);
 
   await app.register(healthRoutes);
   await app.register(webhookRoutes);
+  await app.register(paterhausAuthRoutes);
   await app.register(leadRoutes);
   await app.register(campaignRoutes);
   await app.register(conversationRoutes, options.conversations ?? {});
   await app.register(attachmentRoutes, options.attachments ?? {});
   await app.register(leadClassificationRoutes, options.leadClassifications ?? {});
   await app.register(calendarRoutes);
+  await app.register(operationsRoutes);
+  await app.register(analyticsRoutes);
+  await app.register(internalDocumentRoutes);
   await app.register(integrationRoutes);
   await app.register(internalMonitorRoutes);
 

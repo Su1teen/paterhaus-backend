@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { prisma } from '../src/lib/prisma.js';
-import { closeTestApp, getTestApp, resetDatabase } from './helpers/test-app.js';
+import { closeTestApp, getTestApp, getAuthenticatedTestApp, resetDatabase } from './helpers/test-app.js';
 
 const VALID_CAMPAIGN = {
   name: 'Dubai Marina - Property Management',
@@ -24,7 +24,7 @@ describe('Campaigns API', () => {
   });
 
   it('creates, reads, updates and deletes a campaign', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     const created = await app.inject({ method: 'POST', url: '/campaigns', payload: VALID_CAMPAIGN });
     expect(created.statusCode).toBe(201);
@@ -48,7 +48,7 @@ describe('Campaigns API', () => {
   });
 
   it('validates required fields, enums and non-negative spend', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     const missingFields = await app.inject({ method: 'POST', url: '/campaigns', payload: { name: 'Nameless' } });
     expect(missingFields.statusCode).toBe(400);
@@ -75,7 +75,7 @@ describe('Campaigns API', () => {
   });
 
   it('filters campaigns by direction and status', async () => {
-    const app = await getTestApp();
+    const app = await getAuthenticatedTestApp();
 
     await app.inject({ method: 'POST', url: '/campaigns', payload: VALID_CAMPAIGN });
     await app.inject({

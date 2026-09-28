@@ -39,11 +39,10 @@ async function createApp(repository?: LeadClassificationRepository): Promise<Fas
 }
 
 async function accessToken(app: FastifyInstance, email = 'r_tszi@paterhaus.com'): Promise<string> {
-  const response = await app.inject({
-    method: 'POST',
-    url: '/api/paterhaus/conversations/access-token',
-    payload: { email },
-  });
+  const login = await app.inject({ method: 'POST', url: '/api/paterhaus/auth/login',
+    payload: { email, password: 'test-password' } });
+  const response = await app.inject({ method: 'POST', url: '/api/paterhaus/conversations/access-token',
+    headers: { authorization: `Bearer ${login.json().accessToken}` } });
   expect(response.statusCode).toBe(200);
   return response.json<{ accessToken: string }>().accessToken;
 }
