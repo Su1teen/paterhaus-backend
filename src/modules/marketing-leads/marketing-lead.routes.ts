@@ -34,7 +34,7 @@ export async function marketingLeadRoutes(app: FastifyInstance): Promise<void> {
     };
     if (campaignId) where['campaignId'] = campaignId;
     const items = await prisma.marketingLeadEntry.findMany({
-      where: where as Parameters<typeof prisma.marketingLeadEntry.findMany>[0]['where'],
+      where: where as any,
       orderBy: { entryDate: 'desc' },
       take: 200,
       include: { campaign: { select: { id: true, name: true } } },
