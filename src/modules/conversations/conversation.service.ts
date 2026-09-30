@@ -18,7 +18,7 @@ import {
   type AttachmentRepository,
   type AttachmentRow,
 } from '../attachments/attachment.repository.js';
-import { toMessageAttachment } from '../attachments/attachment.service.js';
+import { toMessageAttachment, toLiveAttachment } from '../attachments/attachment.service.js';
 
 const PREVIEW_LENGTH = 160;
 const HUMAN_USERNAME_PREFIX = 'human:';
@@ -194,7 +194,7 @@ export class ConversationService {
     const messages = await this.guard(() => this.repository.listMessages(chatId));
     const attachmentRows = this.attachmentRepository
       ? await this.guard(() =>
-          this.attachmentRepository!.listByHistoryIds(messages.map((message) => message.id)),
+          this.attachmentRepository!.listByChatId(chatId),
         )
       : [];
     const attachmentsByHistoryId = new Map<string, AttachmentRow[]>();
@@ -219,6 +219,7 @@ export class ConversationService {
       messages: messages.map((message) =>
         this.toLiveMessage(message, fallbackContactName, attachmentsByHistoryId.get(String(message.id))),
       ),
+      attachments: attachmentRows.map(toLiveAttachment),
     };
   }
 
