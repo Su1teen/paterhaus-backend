@@ -23,6 +23,7 @@ import { leadRoutes } from './modules/leads/lead.routes.js';
 import { operationsRoutes } from './modules/operations/operations.routes.js';
 import { analyticsRoutes } from './modules/operations/operations.analytics.js';
 import { webhookRoutes } from './modules/webhooks/webhook.routes.js';
+import { marketingLeadRoutes } from './modules/marketing-leads/marketing-lead.routes.js';
 import { registerCors } from './plugins/cors.js';
 import { registerErrorHandler } from './plugins/error-handler.js';
 import { registerSwagger } from './plugins/swagger.js';
@@ -98,6 +99,7 @@ export async function buildApp(options: BuildAppOptions = {}): Promise<FastifyIn
   await app.register(internalDocumentRoutes);
   await app.register(integrationRoutes);
   await app.register(internalMonitorRoutes);
+  await app.register(marketingLeadRoutes);
 
   app.addHook('onClose', closeChatHistoryPool);
 

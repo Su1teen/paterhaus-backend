@@ -125,10 +125,22 @@ model Campaign {
   startsAt  DateTime?
   endsAt    DateTime?
   notes     String?
+  objective        String?   // AWARENESS | REACH | TRAFFIC | LEAD_GENERATION | CONVERSIONS
+  targetAudienceJson String? // JSON строка с настройками аудитории
+  adCreativeUrl    String?
+  impressions      Int?
+  clicks           Int?
+  reach            Int?
+  conversions      Int?
+  dailyBudget      Decimal?  @db.Decimal(12, 2)
+  lifetimeBudget   Decimal?  @db.Decimal(12, 2)
+  bidStrategy      String?   // LOWEST_COST | COST_CAP | BID_CAP
+  externalCampaignId String? // Meta/Facebook Campaign ID
   createdAt DateTime          @default(now())
   updatedAt DateTime          @updatedAt
 
   leads Lead[]
+  marketingLeads MarketingLeadEntry[]
 
   @@index([direction])
   @@index([status])
@@ -226,6 +238,30 @@ model LeadAttribution {
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+model MarketingLeadEntry {
+  id             String    @id @default(uuid()) @db.Uuid
+  entryDate      DateTime
+  name           String
+  phone          String?
+  email          String?
+  propertyType   String?   // apartment, villa, townhouse etc
+  service        String?   // snagging, home_staging, property_management
+  firstFollowUp  String?   // текст статуса первого follow-up
+  secondFollowUp String?   // текст статуса второго follow-up
+  comments       String?
+  archivedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  campaignId String?   @db.Uuid
+  campaign   Campaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+
+  @@index([entryDate])
+  @@index([service])
+  @@index([archivedAt])
+  @@index([campaignId])
 }
 
 model LeadEvent {

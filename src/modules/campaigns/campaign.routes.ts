@@ -30,7 +30,18 @@ const productionCampaignFields = z.object({
   currency: z.string().regex(/^[A-Z]{3}$/).default('AED'),
   startsAt: z.coerce.date().nullable().optional(), endsAt: z.coerce.date().nullable().optional(),
   notes: z.string().trim().max(2000).nullable().optional(),
-}).strict();
+  objective: z.string().max(100).nullable().optional(),
+  targetAudienceJson: z.string().max(5000).nullable().optional(),
+  adCreativeUrl: z.string().url().nullable().optional(),
+  impressions: z.coerce.number().int().min(0).nullable().optional(),
+  clicks: z.coerce.number().int().min(0).nullable().optional(),
+  reach: z.coerce.number().int().min(0).nullable().optional(),
+  conversions: z.coerce.number().int().min(0).nullable().optional(),
+  dailyBudget: z.coerce.number().finite().min(0).nullable().optional(),
+  lifetimeBudget: z.coerce.number().finite().min(0).nullable().optional(),
+  bidStrategy: z.string().max(50).nullable().optional(),
+  externalCampaignId: z.string().max(200).nullable().optional(),
+});
 const validPeriod = (value: { startsAt?: Date | null; endsAt?: Date | null }) =>
   !value.startsAt || !value.endsAt || value.startsAt <= value.endsAt;
 const productionCampaignInput = productionCampaignFields.refine(validPeriod,
@@ -119,7 +130,11 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
   app.post('/api/paterhaus/marketing/campaigns', async (request, reply) => {
     const input = productionCampaignInput.parse(request.body);
     return reply.code(201).send(await prisma.campaign.create({ data: {
-      ...input, spendAmount: new Prisma.Decimal(input.spendAmount), spendUsd: new Prisma.Decimal(0),
+      ...input,
+      spendAmount: new Prisma.Decimal(input.spendAmount),
+      spendUsd: new Prisma.Decimal(0),
+      dailyBudget: input.dailyBudget != null ? new Prisma.Decimal(input.dailyBudget) : null,
+      lifetimeBudget: input.lifetimeBudget != null ? new Prisma.Decimal(input.lifetimeBudget) : null,
     } }));
   });
   app.patch('/api/paterhaus/marketing/campaigns/:id', async (request) => {
@@ -133,6 +148,8 @@ export async function campaignRoutes(app: FastifyInstance): Promise<void> {
     return prisma.campaign.update({ where: { id }, data: {
       ...input,
       ...(input.spendAmount !== undefined ? { spendAmount: new Prisma.Decimal(input.spendAmount) } : {}),
+      ...(('dailyBudget' in input) ? { dailyBudget: input.dailyBudget != null ? new Prisma.Decimal(input.dailyBudget) : null } : {}),
+      ...(('lifetimeBudget' in input) ? { lifetimeBudget: input.lifetimeBudget != null ? new Prisma.Decimal(input.lifetimeBudget) : null } : {}),
     } });
   });
   app.patch('/api/paterhaus/marketing/campaigns/:id/archive', async (request) => {
