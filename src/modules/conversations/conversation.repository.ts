@@ -127,9 +127,8 @@ export class ConversationRepository {
         WHERE NULLIF(BTRIM(c.chat_id), '') IS NOT NULL
           AND NULLIF(BTRIM(c.number), '') IS NOT NULL
           AND (
-            $4::boolean IS NULL
-            OR ($4 = TRUE AND c.archived_at IS NOT NULL)
-            OR ($4 = FALSE AND c.archived_at IS NULL)
+            ($4::boolean IS TRUE AND c.archived_at IS NOT NULL)
+            OR (($4 IS NULL OR $4::boolean IS FALSE) AND c.archived_at IS NULL)
           )
           AND (
             $1::text IS NULL

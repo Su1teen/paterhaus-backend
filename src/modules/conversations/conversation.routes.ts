@@ -10,6 +10,7 @@ import {
   conversationListQuerySchema,
   sendConversationMessageSchema,
   updateConversationAiSchema,
+  archiveConversationSchema,
 } from './conversation.schemas.js';
 import {
   createOutboundMessageSender,
@@ -86,6 +87,7 @@ export async function conversationRoutes(
             limit: { type: 'integer', minimum: 1, maximum: 100, default: 50 },
             cursor: { type: 'integer', minimum: 0 },
             search: { type: 'string', maxLength: 200 },
+            archived: { type: 'boolean' },
           },
         },
       },

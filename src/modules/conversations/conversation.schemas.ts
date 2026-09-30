@@ -11,7 +11,11 @@ export const conversationListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
   cursor: z.coerce.number().int().nonnegative().optional(),
   search: z.string().trim().max(200).optional(),
-  archived: z.coerce.boolean().optional(),
+  archived: z.preprocess((val) => {
+    if (typeof val === 'string') return val.toLowerCase() === 'true';
+    if (val === undefined || val === null) return undefined;
+    return Boolean(val);
+  }, z.boolean().optional()).optional(),
 });
 
 export const conversationIdParamSchema = z.object({
