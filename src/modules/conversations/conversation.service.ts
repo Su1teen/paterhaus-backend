@@ -117,7 +117,7 @@ export class ConversationService {
   async list(query: ConversationListQuery) {
     const offset = query.cursor ?? 0;
     const result = await this.guard(() =>
-      this.repository.list({ limit: query.limit, offset, search: query.search }),
+      this.repository.list({ limit: query.limit, offset, search: query.search, archived: query.archived }),
     );
 
     return {
@@ -132,6 +132,7 @@ export class ConversationService {
           clean(row.chat_id) ??
           `Conversation ${row.id}`,
         aiEnabled: row.ai_enabled !== false,
+        archivedAt: asIso(row.archived_at),
         lastMessagePreview: row.latest_attachment_id
           ? (clean(row.latest_attachment_caption) ?? clean(row.latest_attachment_file_name))
           : (clean(row.latest_message)?.slice(0, PREVIEW_LENGTH) ?? null),
@@ -218,6 +219,18 @@ export class ConversationService {
       messages: messages.map((message) =>
         this.toLiveMessage(message, fallbackContactName, attachmentsByHistoryId.get(String(message.id))),
       ),
+    };
+  }
+
+  async setArchived(id: number, archived: boolean) {
+    const conversation = await this.guard(() => this.repository.setArchived(id, archived));
+    if (!conversation) throw notFound('Conversation not found');
+
+    return {
+      id: conversation.id,
+      chatId: clean(conversation.chat_id),
+      archived: Boolean(conversation.archived_at),
+      archivedAt: asIso(conversation.archived_at),
     };
   }
 

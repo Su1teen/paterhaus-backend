@@ -29,6 +29,7 @@ interface ConversationListRow extends QueryResultRow {
   latest_attachment_id: string | null;
   latest_attachment_file_name: string | null;
   latest_attachment_caption: string | null;
+  archived_at: Date | string | null;
 }
 
 interface ConversationRow extends QueryResultRow {
@@ -79,6 +80,7 @@ export class ConversationRepository {
     limit: number;
     offset: number;
     search?: string;
+    archived?: boolean;
   }): Promise<{ rows: ConversationListRow[]; hasMore: boolean }> {
     const searchPattern = input.search ? `%${escapeLikePattern(input.search)}%` : null;
     const result = await this.run<ConversationListRow>(
@@ -90,6 +92,7 @@ export class ConversationRepository {
           c.number,
           c.username,
           COALESCE(c.ai_enabled, TRUE) AS ai_enabled,
+          c.archived_at,
           latest.id AS latest_message_id,
           latest.message AS latest_message,
           latest.time AS latest_message_time,
@@ -124,6 +127,11 @@ export class ConversationRepository {
         WHERE NULLIF(BTRIM(c.chat_id), '') IS NOT NULL
           AND NULLIF(BTRIM(c.number), '') IS NOT NULL
           AND (
+            $4::boolean IS NULL
+            OR ($4 = TRUE AND c.archived_at IS NOT NULL)
+            OR ($4 = FALSE AND c.archived_at IS NULL)
+          )
+          AND (
             $1::text IS NULL
             OR COALESCE(c.chat_id, '') ILIKE $1 ESCAPE '\\'
             OR COALESCE(c.number, '') ILIKE $1 ESCAPE '\\'
@@ -133,7 +141,7 @@ export class ConversationRepository {
         LIMIT $2
         OFFSET $3
       `,
-      [searchPattern, input.limit + 1, input.offset],
+      [searchPattern, input.limit + 1, input.offset, input.archived ?? false],
     );
 
     return {
@@ -192,6 +200,20 @@ export class ConversationRepository {
     const row = result.rows[0];
     if (!row) throw new ChatHistoryUnavailableError('insert human message');
     return row;
+  }
+
+  async setArchived(id: number, archived: boolean): Promise<{ id: number; chat_id: string | null; archived_at: Date | string | null } | null> {
+    const result = await this.run<{ id: number; chat_id: string | null; archived_at: Date | string | null }>(
+      'set archived',
+      `
+        UPDATE chats_pater
+        SET archived_at = CASE WHEN $2 THEN NOW() ELSE NULL END
+        WHERE id = $1
+        RETURNING id, chat_id, archived_at
+      `,
+      [id, archived],
+    );
+    return result.rows[0] ?? null;
   }
 
   async setAiEnabled(id: number, aiEnabled: boolean): Promise<ConversationAiRow | null> {

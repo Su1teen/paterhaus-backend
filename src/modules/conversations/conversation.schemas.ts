@@ -11,6 +11,7 @@ export const conversationListQuerySchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(50),
   cursor: z.coerce.number().int().nonnegative().optional(),
   search: z.string().trim().max(200).optional(),
+  archived: z.coerce.boolean().optional(),
 });
 
 export const conversationIdParamSchema = z.object({
@@ -19,6 +20,10 @@ export const conversationIdParamSchema = z.object({
 
 export const updateConversationAiSchema = z.object({
   aiEnabled: z.boolean(),
+});
+
+export const archiveConversationSchema = z.object({
+  archived: z.boolean().default(true),
 });
 
 export const MAX_MANUAL_MESSAGE_LENGTH = 4096;
