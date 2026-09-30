@@ -171,10 +171,10 @@ export class ConversationService {
           : (clean(message.username) ?? fallbackContactName);
 
     const attachments = attachmentRows.map(toMessageAttachment);
-    const text =
-      senderType === 'contact' && attachments.length > 0
-        ? (attachments.find((attachment) => attachment.caption)?.caption ?? '')
-        : (message.message ?? '');
+    const rawMessage = (message.message ?? '').trim();
+    const attachmentCaption =
+      attachments.find((attachment) => attachment.caption && attachment.caption.trim())?.caption?.trim() ?? '';
+    const text = rawMessage || attachmentCaption || (clean(message.message) ?? '');
 
     return {
       id: message.id,

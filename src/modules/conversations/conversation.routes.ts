@@ -172,4 +172,31 @@ export async function conversationRoutes(
       return result;
     },
   );
+
+  app.patch(
+    '/api/paterhaus/conversations/:conversationId/archive',
+    {
+      preHandler: requireConversationAccess,
+      schema: {
+        ...conversationTag,
+        summary: 'Archive or restore a live conversation',
+        body: {
+          type: 'object',
+          required: ['archived'],
+          additionalProperties: false,
+          properties: { archived: { type: 'boolean' } },
+        },
+      },
+    },
+    async (request) => {
+      const { conversationId } = conversationIdParamSchema.parse(request.params);
+      const { archived } = archiveConversationSchema.parse(request.body);
+      const result = await service.setArchived(conversationId, archived);
+      request.log.info(
+        { conversationId, archived, authorizedEmail: request.conversationAccessEmail },
+        'Conversation archive status updated',
+      );
+      return result;
+    },
+  );
 }
